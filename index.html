@@ -1,0 +1,996 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>📚 출판 업무 관리</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap');
+    * { font-family: 'Noto Sans KR', sans-serif; }
+    .loader { border: 3px solid #f3f3f3; border-top: 3px solid #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+    .modal-content { background: white; border-radius: 16px; max-height: 90vh; overflow-y: auto; }
+    .input-field { width: 100%; padding: 10px 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; transition: all 0.2s; }
+    .input-field:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
+    .btn { padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.2s; border: none; }
+    .btn-primary { background: #3b82f6; color: white; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-secondary { background: #f1f5f9; color: #475569; }
+    .btn-secondary:hover { background: #e2e8f0; }
+    .btn-danger { background: #fee2e2; color: #dc2626; }
+    .btn-danger:hover { background: #fecaca; }
+    .stage-badge { padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+    .toast { position: fixed; bottom: 24px; right: 24px; padding: 16px 24px; border-radius: 12px; color: white; font-weight: 500; z-index: 100; animation: slideIn 0.3s ease; }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    .kanban-card { background: white; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer; transition: all 0.2s; }
+    .kanban-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen">
+  <div id="app">
+    <!-- 설정 모달 (Google Sheets) -->
+    <div id="setupModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl">
+        <h2 class="text-xl font-bold text-slate-800 mb-4">🔗 Google Sheets 연결</h2>
+        <p class="text-slate-600 text-sm mb-4">투두 리스트 동기화를 위한 Apps Script 웹 앱 URL을 입력해주세요. (선택사항)</p>
+        <input 
+          type="text" 
+          id="apiUrlInput"
+          placeholder="https://script.google.com/macros/s/..."
+          class="w-full px-4 py-3 bg-slate-50 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm mb-4"
+        >
+        <div class="flex gap-3">
+          <button onclick="skipSetup()" class="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors">
+            나중에
+          </button>
+          <button onclick="saveApiUrl()" class="flex-1 py-3 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600 transition-colors">
+            연결하기
+          </button>
+        </div>
+        <p class="text-xs text-slate-400 mt-3 text-center">연결하지 않아도 로컬에서 사용 가능합니다.</p>
+      </div>
+    </div>
+
+    <!-- 로딩 -->
+    <div id="loadingScreen" class="fixed inset-0 bg-white flex items-center justify-center z-40">
+      <div class="text-center">
+        <div class="loader mx-auto mb-4"></div>
+        <p class="text-slate-500">불러오는 중...</p>
+      </div>
+    </div>
+
+    <!-- 토스트 -->
+    <div id="toastContainer"></div>
+
+    <!-- 메인 컨텐츠 -->
+    <div id="mainContent" class="hidden">
+      <!-- 상단 네비게이션 -->
+      <nav class="bg-white border-b border-slate-200 sticky top-0 z-30">
+        <div class="max-w-6xl mx-auto px-4">
+          <div class="flex items-center justify-between h-16">
+            <h1 class="text-xl font-bold text-slate-800">📚 출판 업무 관리</h1>
+            
+            <!-- 메인 탭 -->
+            <div class="flex bg-slate-100 rounded-xl p-1">
+              <button onclick="switchTab('todo')" id="todoTab" class="tab-btn flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-colors bg-white text-slate-800 shadow-sm">
+                📋 투두
+              </button>
+              <button onclick="switchTab('rights')" id="rightsTab" class="tab-btn flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-colors text-slate-600 hover:text-slate-800">
+                🌏 외서 관리
+              </button>
+            </div>
+
+            <button onclick="showSetup()" class="text-slate-400 hover:text-slate-600 text-sm">
+              ⚙️ 설정
+            </button>
+          </div>
+        </div>
+      </nav>
+
+      <!-- 투두 섹션 -->
+      <div id="todoSection" class="p-4 md:p-8">
+        <div class="max-w-4xl mx-auto">
+          <!-- 투두 헤더 -->
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h2 class="text-2xl font-bold text-slate-800 mb-1">오늘의 할 일</h2>
+              <p class="text-slate-500 text-sm">하나씩 해결해 나가요</p>
+            </div>
+            
+            <!-- 뷰 토글 -->
+            <div class="flex bg-white rounded-xl p-1 shadow-sm border border-slate-200">
+              <button onclick="setTodoView('list')" id="todoListBtn" class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-slate-800 text-white">
+                목록
+              </button>
+              <button onclick="setTodoView('calendar')" id="todoCalendarBtn" class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors text-slate-600 hover:bg-slate-100">
+                캘린더
+              </button>
+            </div>
+          </div>
+
+          <!-- 통계 -->
+          <div class="grid grid-cols-3 gap-3 md:gap-4 mb-6">
+            <div class="bg-white rounded-xl p-3 md:p-4 shadow-sm border border-slate-100">
+              <div id="statRemaining" class="text-xl md:text-2xl font-bold text-slate-800">0</div>
+              <div class="text-xs md:text-sm text-slate-500">남은 할 일</div>
+            </div>
+            <div class="bg-white rounded-xl p-3 md:p-4 shadow-sm border border-slate-100">
+              <div id="statCompleted" class="text-xl md:text-2xl font-bold text-green-600">0</div>
+              <div class="text-xs md:text-sm text-slate-500">완료</div>
+            </div>
+            <div class="bg-white rounded-xl p-3 md:p-4 shadow-sm border border-slate-100">
+              <div id="statOverdue" class="text-xl md:text-2xl font-bold text-red-500">0</div>
+              <div class="text-xs md:text-sm text-slate-500">기한 초과</div>
+            </div>
+          </div>
+
+          <!-- 투두 추가 폼 -->
+          <div class="bg-white rounded-2xl p-4 md:p-5 shadow-sm border border-slate-100 mb-6">
+            <div class="flex gap-2 md:gap-3 mb-4">
+              <input type="text" id="newTodoInput" placeholder="새로운 할 일을 입력하세요" class="input-field flex-1" onkeypress="if(event.key === 'Enter') addTodo()">
+              <button onclick="addTodo()" class="btn btn-primary flex items-center gap-2">
+                <span>+</span> <span class="hidden md:inline">추가</span>
+              </button>
+            </div>
+            
+            <div class="flex flex-wrap gap-2 md:gap-3">
+              <select id="newCategory" class="input-field w-auto">
+                <option value="manuscript">원고 검토</option>
+                <option value="planning">기획안</option>
+                <option value="foreign">외서 업무</option>
+                <option value="email">메일</option>
+                <option value="other" selected>기타</option>
+              </select>
+              
+              <select id="newPriority" class="input-field w-auto">
+                <option value="high">긴급</option>
+                <option value="medium" selected>보통</option>
+                <option value="low">낮음</option>
+              </select>
+              
+              <input type="date" id="newDueDate" class="input-field w-auto">
+            </div>
+          </div>
+
+          <!-- 리스트 뷰 -->
+          <div id="todoListView">
+            <div class="flex flex-wrap gap-2 mb-4 overflow-x-auto pb-2" id="filterButtons"></div>
+            <div class="flex items-center gap-2 mb-4">
+              <input type="checkbox" id="showCompleted" checked onchange="renderTodos()" class="w-4 h-4 rounded">
+              <label for="showCompleted" class="text-sm text-slate-500">완료된 항목 표시</label>
+            </div>
+            <div id="todoList" class="space-y-3"></div>
+          </div>
+
+          <!-- 캘린더 뷰 -->
+          <div id="todoCalendarView" class="hidden">
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div class="flex items-center justify-between p-4 border-b border-slate-100">
+                <button onclick="prevMonth()" class="p-2 hover:bg-slate-100 rounded-lg transition-colors">◀</button>
+                <div class="flex items-center gap-3">
+                  <h3 id="calendarTitle" class="text-lg font-semibold text-slate-800"></h3>
+                  <button onclick="goToToday()" class="px-3 py-1 text-xs font-medium text-blue-600 bg-blue-50 rounded-full hover:bg-blue-100">오늘</button>
+                </div>
+                <button onclick="nextMonth()" class="p-2 hover:bg-slate-100 rounded-lg transition-colors">▶</button>
+              </div>
+              <div class="grid grid-cols-7 border-b border-slate-100">
+                <div class="p-2 text-center text-sm font-medium text-red-500">일</div>
+                <div class="p-2 text-center text-sm font-medium text-slate-500">월</div>
+                <div class="p-2 text-center text-sm font-medium text-slate-500">화</div>
+                <div class="p-2 text-center text-sm font-medium text-slate-500">수</div>
+                <div class="p-2 text-center text-sm font-medium text-slate-500">목</div>
+                <div class="p-2 text-center text-sm font-medium text-slate-500">금</div>
+                <div class="p-2 text-center text-sm font-medium text-blue-500">토</div>
+              </div>
+              <div id="calendarGrid" class="grid grid-cols-7"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 외서 관리 섹션 -->
+      <div id="rightsSection" class="hidden p-4 md:p-8">
+        <div class="max-w-6xl mx-auto">
+          <!-- 외서 헤더 -->
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <div>
+              <h2 class="text-2xl font-bold text-slate-800 mb-1">외서 수입 관리</h2>
+              <p class="text-slate-500 text-sm">해외 저작권 계약 현황</p>
+            </div>
+            
+            <div class="flex items-center gap-3">
+              <button onclick="showAlertsModal()" id="alertsBtn" class="relative btn btn-secondary">
+                🔔 알림 <span id="alertsBadge" class="hidden absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center"></span>
+              </button>
+              <button onclick="exportToExcel()" class="btn btn-secondary">📊 엑셀</button>
+              <button onclick="showAddBookModal()" class="btn btn-primary">+ 새 도서</button>
+            </div>
+          </div>
+
+          <!-- 필터 & 검색 -->
+          <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 mb-6">
+            <div class="flex flex-wrap gap-3">
+              <input type="text" id="bookSearch" placeholder="도서명, 저자, 출판사 검색" class="input-field flex-1 min-w-48" oninput="renderBooks()">
+              <select id="stageFilter" class="input-field w-auto" onchange="renderBooks()">
+                <option value="all">전체 단계</option>
+              </select>
+              <select id="countryFilter" class="input-field w-auto" onchange="renderBooks()">
+                <option value="all">전체 국가</option>
+              </select>
+              <div class="flex bg-slate-100 rounded-lg p-1">
+                <button onclick="setRightsView('table')" id="rightsTableBtn" class="px-4 py-2 rounded-md text-sm font-medium bg-white shadow-sm">테이블</button>
+                <button onclick="setRightsView('kanban')" id="rightsKanbanBtn" class="px-4 py-2 rounded-md text-sm font-medium text-slate-600">칸반</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 테이블 뷰 -->
+          <div id="rightsTableView" class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+            <div class="overflow-x-auto">
+              <table class="w-full">
+                <thead class="bg-slate-50 border-b border-slate-200">
+                  <tr>
+                    <th class="text-left p-4 font-semibold text-slate-600 text-sm">도서명</th>
+                    <th class="text-left p-4 font-semibold text-slate-600 text-sm">저자</th>
+                    <th class="text-left p-4 font-semibold text-slate-600 text-sm">국가</th>
+                    <th class="text-left p-4 font-semibold text-slate-600 text-sm">출판사</th>
+                    <th class="text-left p-4 font-semibold text-slate-600 text-sm">진행 단계</th>
+                    <th class="text-left p-4 font-semibold text-slate-600 text-sm">선인세</th>
+                    <th class="text-left p-4 font-semibold text-slate-600 text-sm">계약 만료</th>
+                  </tr>
+                </thead>
+                <tbody id="booksTableBody"></tbody>
+              </table>
+            </div>
+          </div>
+
+          <!-- 칸반 뷰 -->
+          <div id="rightsKanbanView" class="hidden">
+            <div id="kanbanBoard" class="flex gap-4 overflow-x-auto pb-4"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 도서 편집 모달 -->
+    <div id="editBookModal" class="hidden modal-overlay" onclick="closeModal('editBookModal')">
+      <div class="modal-content w-full max-w-2xl p-6" onclick="event.stopPropagation()">
+        <div class="flex justify-between items-center mb-6">
+          <h3 class="text-xl font-bold text-slate-800">📖 도서 상세</h3>
+          <button onclick="closeModal('editBookModal')" class="text-2xl text-slate-400 hover:text-slate-600">×</button>
+        </div>
+        <div id="editBookContent"></div>
+      </div>
+    </div>
+
+    <!-- 도서 추가 모달 -->
+    <div id="addBookModal" class="hidden modal-overlay" onclick="closeModal('addBookModal')">
+      <div class="modal-content w-full max-w-lg p-6" onclick="event.stopPropagation()">
+        <div class="flex justify-between items-center mb-6">
+          <h3 class="text-xl font-bold text-slate-800">📚 새 도서 등록</h3>
+          <button onclick="closeModal('addBookModal')" class="text-2xl text-slate-400 hover:text-slate-600">×</button>
+        </div>
+        <div id="addBookContent"></div>
+      </div>
+    </div>
+
+    <!-- 알림 모달 -->
+    <div id="alertsModal" class="hidden modal-overlay" onclick="closeModal('alertsModal')">
+      <div class="modal-content w-full max-w-md p-6" onclick="event.stopPropagation()">
+        <div class="flex justify-between items-center mb-6">
+          <h3 class="text-xl font-bold text-slate-800">🔔 계약 만료 알림</h3>
+          <button onclick="closeModal('alertsModal')" class="text-2xl text-slate-400 hover:text-slate-600">×</button>
+        </div>
+        <div id="alertsContent"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ==================== 상수 ====================
+    const STAGES = [
+      { id: 1, name: '원고 검토', icon: '📖' },
+      { id: 2, name: '오퍼 접수', icon: '📨' },
+      { id: 3, name: '오퍼 승인', icon: '✅' },
+      { id: 4, name: '계약서 초안', icon: '📝' },
+      { id: 5, name: '계약서 서명', icon: '✍️' },
+      { id: 6, name: '계약 완료', icon: '🤝' },
+      { id: 7, name: '자료 공유', icon: '📤' },
+      { id: 8, name: '도서 발송', icon: '📦' },
+      { id: 9, name: '선인세 입금', icon: '💰' },
+      { id: 10, name: '표지/판권 승인', icon: '🎨' },
+      { id: 11, name: '출간 확인', icon: '🎉' },
+      { id: 12, name: '추가 인세', icon: '💵' },
+      { id: 13, name: '해외판 입수', icon: '📚' },
+      { id: 14, name: '계약 만료', icon: '📋' },
+    ];
+
+    const COUNTRIES = ['일본', '중국', '대만', '태국', '베트남', '인도네시아', '미국', '영국', '프랑스', '독일', '스페인', '이탈리아', '러시아', '폴란드', '터키'];
+    const COUNTRY_FLAGS = { '일본': '🇯🇵', '중국': '🇨🇳', '대만': '🇹🇼', '태국': '🇹🇭', '베트남': '🇻🇳', '인도네시아': '🇮🇩', '미국': '🇺🇸', '영국': '🇬🇧', '프랑스': '🇫🇷', '독일': '🇩🇪', '스페인': '🇪🇸', '이탈리아': '🇮🇹', '러시아': '🇷🇺', '폴란드': '🇵🇱', '터키': '🇹🇷' };
+
+    const TODO_CATEGORIES = {
+      manuscript: { name: '원고 검토', color: 'bg-blue-500', light: 'bg-blue-100 text-blue-700' },
+      planning: { name: '기획안', color: 'bg-purple-500', light: 'bg-purple-100 text-purple-700' },
+      foreign: { name: '외서 업무', color: 'bg-green-500', light: 'bg-green-100 text-green-700' },
+      email: { name: '메일', color: 'bg-yellow-500', light: 'bg-yellow-100 text-yellow-700' },
+      other: { name: '기타', color: 'bg-gray-500', light: 'bg-gray-100 text-gray-700' }
+    };
+
+    const PRIORITIES = {
+      high: { name: '긴급', color: 'text-red-500', bg: 'bg-red-50' },
+      medium: { name: '보통', color: 'text-orange-500', bg: 'bg-orange-50' },
+      low: { name: '낮음', color: 'text-gray-500', bg: 'bg-gray-50' }
+    };
+
+    const sampleBooks = [
+      { id: 1, title: '달빛 아래 정원', author: '김서연', country: '일본', publisher: 'Kadokawa', stage: 11, contractDate: '2024-03-15', expiryDate: '2027-03-14', advance: 5000, currency: 'USD', notes: '표지 디자인 컨펌 완료', royalties: [] },
+      { id: 2, title: '코드의 미학', author: '박준호', country: '대만', publisher: 'Crown Publishing', stage: 6, contractDate: '2024-08-01', expiryDate: '2027-07-31', advance: 3000, currency: 'USD', notes: '계약금 협상 완료', royalties: [] },
+      { id: 3, title: '사라진 시간들', author: '이하늘', country: '중국', publisher: 'CITIC Press', stage: 9, contractDate: '2024-05-20', expiryDate: '2027-05-19', advance: 8000, currency: 'USD', notes: '선인세 입금 대기 중', royalties: [] },
+    ];
+
+    // ==================== 상태 ====================
+    let todos = [];
+    let books = [];
+    let currentTab = 'todo';
+    let todoView = 'list';
+    let rightsView = 'table';
+    let currentFilter = 'all';
+    let currentMonth = new Date();
+    let selectedBook = null;
+    let API_URL = '';
+
+    // ==================== 초기화 ====================
+    document.addEventListener('DOMContentLoaded', async () => {
+      API_URL = localStorage.getItem('todoApiUrl') || '';
+      
+      // 필터 버튼 생성
+      initFilters();
+      
+      // 데이터 로드
+      await loadAllData();
+      
+      // UI 업데이트
+      document.getElementById('loadingScreen').classList.add('hidden');
+      document.getElementById('mainContent').classList.remove('hidden');
+      
+      renderTodos();
+      renderBooks();
+      renderCalendar();
+      updateAlertsBadge();
+    });
+
+    function initFilters() {
+      // 투두 필터
+      const filterContainer = document.getElementById('filterButtons');
+      filterContainer.innerHTML = `
+        <button onclick="setFilter('all')" data-filter="all" class="filter-btn px-3 py-2 rounded-full text-sm font-medium bg-slate-800 text-white">전체</button>
+        ${Object.entries(TODO_CATEGORIES).map(([id, cat]) => `
+          <button onclick="setFilter('${id}')" data-filter="${id}" class="filter-btn px-3 py-2 rounded-full text-sm font-medium bg-white text-slate-600 hover:bg-slate-100">${cat.name}</button>
+        `).join('')}
+      `;
+
+      // 외서 단계 필터
+      const stageFilter = document.getElementById('stageFilter');
+      stageFilter.innerHTML = '<option value="all">전체 단계</option>' + 
+        STAGES.map(s => `<option value="${s.id}">${s.icon} ${s.name}</option>`).join('');
+
+      // 국가 필터
+      const countryFilter = document.getElementById('countryFilter');
+      countryFilter.innerHTML = '<option value="all">전체 국가</option>' + 
+        COUNTRIES.map(c => `<option value="${c}">${COUNTRY_FLAGS[c]} ${c}</option>`).join('');
+    }
+
+    async function loadAllData() {
+      // 투두 로드
+      try {
+        if (API_URL) {
+          const response = await fetch(`${API_URL}?action=get&t=${Date.now()}`);
+          const data = await response.json();
+          todos = data.todos || [];
+        } else {
+          const stored = localStorage.getItem('todos');
+          todos = stored ? JSON.parse(stored) : [];
+        }
+      } catch (e) {
+        const stored = localStorage.getItem('todos');
+        todos = stored ? JSON.parse(stored) : [];
+      }
+
+      // 도서 로드
+      try {
+        const stored = localStorage.getItem('rights-books');
+        books = stored ? JSON.parse(stored) : sampleBooks;
+      } catch (e) {
+        books = sampleBooks;
+      }
+    }
+
+    // ==================== 탭 전환 ====================
+    function switchTab(tab) {
+      currentTab = tab;
+      
+      document.getElementById('todoTab').className = `tab-btn flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'todo' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`;
+      document.getElementById('rightsTab').className = `tab-btn flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'rights' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`;
+      
+      document.getElementById('todoSection').classList.toggle('hidden', tab !== 'todo');
+      document.getElementById('rightsSection').classList.toggle('hidden', tab !== 'rights');
+    }
+
+    // ==================== 설정 ====================
+    function showSetup() {
+      document.getElementById('apiUrlInput').value = API_URL;
+      document.getElementById('setupModal').classList.remove('hidden');
+    }
+
+    function skipSetup() {
+      document.getElementById('setupModal').classList.add('hidden');
+    }
+
+    async function saveApiUrl() {
+      const url = document.getElementById('apiUrlInput').value.trim();
+      API_URL = url;
+      localStorage.setItem('todoApiUrl', url);
+      document.getElementById('setupModal').classList.add('hidden');
+      
+      if (url) {
+        await loadAllData();
+        renderTodos();
+      }
+      showToast('설정이 저장되었습니다');
+    }
+
+    // ==================== 토스트 ====================
+    function showToast(message, type = 'success') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+
+    // ==================== 투두 기능 ====================
+    function setTodoView(view) {
+      todoView = view;
+      document.getElementById('todoListBtn').className = `flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'list' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`;
+      document.getElementById('todoCalendarBtn').className = `flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'calendar' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`;
+      document.getElementById('todoListView').classList.toggle('hidden', view !== 'list');
+      document.getElementById('todoCalendarView').classList.toggle('hidden', view !== 'calendar');
+      if (view === 'calendar') renderCalendar();
+    }
+
+    function setFilter(filter) {
+      currentFilter = filter;
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.className = `filter-btn px-3 py-2 rounded-full text-sm font-medium ${btn.dataset.filter === filter ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-100'}`;
+      });
+      renderTodos();
+    }
+
+    async function addTodo() {
+      const text = document.getElementById('newTodoInput').value.trim();
+      if (!text) return;
+
+      const todo = {
+        id: Date.now().toString(),
+        text,
+        category: document.getElementById('newCategory').value,
+        priority: document.getElementById('newPriority').value,
+        dueDate: document.getElementById('newDueDate').value,
+        completed: false,
+        createdAt: new Date().toISOString()
+      };
+
+      todos.unshift(todo);
+      document.getElementById('newTodoInput').value = '';
+      document.getElementById('newDueDate').value = '';
+      
+      await saveTodos();
+      renderTodos();
+      renderCalendar();
+    }
+
+    async function toggleTodo(id) {
+      const todo = todos.find(t => t.id === id);
+      if (todo) {
+        todo.completed = !todo.completed;
+        await saveTodos();
+        renderTodos();
+        renderCalendar();
+      }
+    }
+
+    async function deleteTodo(id) {
+      todos = todos.filter(t => t.id !== id);
+      await saveTodos();
+      renderTodos();
+      renderCalendar();
+    }
+
+    async function saveTodos() {
+      localStorage.setItem('todos', JSON.stringify(todos));
+      if (API_URL) {
+        try {
+          // 간단한 동기화 (전체 저장)
+          await fetch(`${API_URL}?action=save&todos=${encodeURIComponent(JSON.stringify(todos))}&t=${Date.now()}`);
+        } catch (e) {
+          console.log('Sync failed, saved locally');
+        }
+      }
+    }
+
+    function isOverdue(dueDate, completed) {
+      if (!dueDate || completed) return false;
+      return new Date(dueDate) < new Date(new Date().toDateString());
+    }
+
+    function renderTodos() {
+      const showCompleted = document.getElementById('showCompleted').checked;
+      
+      let filtered = todos
+        .filter(todo => currentFilter === 'all' || todo.category === currentFilter)
+        .filter(todo => showCompleted || !todo.completed)
+        .sort((a, b) => {
+          if (a.completed !== b.completed) return a.completed ? 1 : -1;
+          const order = { high: 0, medium: 1, low: 2 };
+          return order[a.priority] - order[b.priority];
+        });
+
+      // 통계 업데이트
+      const completed = todos.filter(t => t.completed).length;
+      const overdue = todos.filter(t => !t.completed && isOverdue(t.dueDate, false)).length;
+      document.getElementById('statRemaining').textContent = todos.length - completed;
+      document.getElementById('statCompleted').textContent = completed;
+      document.getElementById('statOverdue').textContent = overdue;
+
+      const container = document.getElementById('todoList');
+      if (filtered.length === 0) {
+        container.innerHTML = '<div class="bg-white rounded-2xl p-8 text-center text-slate-400">할 일이 없습니다 ✨</div>';
+        return;
+      }
+
+      container.innerHTML = filtered.map(todo => {
+        const cat = TODO_CATEGORIES[todo.category] || TODO_CATEGORIES.other;
+        const pri = PRIORITIES[todo.priority] || PRIORITIES.medium;
+        const overdue = isOverdue(todo.dueDate, todo.completed);
+        
+        return `
+          <div class="bg-white rounded-xl p-4 shadow-sm border transition-all ${todo.completed ? 'opacity-60 border-slate-100' : overdue ? 'border-red-200 bg-red-50/30' : 'border-slate-100 hover:shadow-md'}">
+            <div class="flex items-start gap-3">
+              <button onclick="toggleTodo('${todo.id}')" class="mt-1 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ${todo.completed ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-green-500'}">
+                ${todo.completed ? '✓' : ''}
+              </button>
+              <div class="flex-1 min-w-0">
+                <p class="text-slate-800 font-medium ${todo.completed ? 'line-through text-slate-400' : ''}">${todo.text}</p>
+                <div class="flex flex-wrap items-center gap-2 mt-2">
+                  <span class="px-2 py-1 rounded-md text-xs font-medium text-white ${cat.color}">${cat.name}</span>
+                  <span class="px-2 py-1 rounded-md text-xs font-medium ${pri.color} ${pri.bg}">${pri.name}</span>
+                  ${todo.dueDate ? `<span class="px-2 py-1 rounded-md text-xs ${overdue ? 'text-red-600 bg-red-100 font-medium' : 'text-slate-500 bg-slate-100'}">${new Date(todo.dueDate).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}${overdue ? ' (기한 초과)' : ''}</span>` : ''}
+                </div>
+              </div>
+              <button onclick="deleteTodo('${todo.id}')" class="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg">🗑</button>
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    // ==================== 캘린더 ====================
+    function renderCalendar() {
+      const year = currentMonth.getFullYear();
+      const month = currentMonth.getMonth();
+      
+      document.getElementById('calendarTitle').textContent = currentMonth.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' });
+
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+      const startingDay = firstDay.getDay();
+      const daysInMonth = lastDay.getDate();
+
+      const days = [];
+      const prevMonth = new Date(year, month, 0);
+      for (let i = startingDay - 1; i >= 0; i--) {
+        days.push({ date: new Date(year, month - 1, prevMonth.getDate() - i), isCurrentMonth: false });
+      }
+      for (let i = 1; i <= daysInMonth; i++) {
+        days.push({ date: new Date(year, month, i), isCurrentMonth: true });
+      }
+      const remaining = 42 - days.length;
+      for (let i = 1; i <= remaining; i++) {
+        days.push({ date: new Date(year, month + 1, i), isCurrentMonth: false });
+      }
+
+      const today = new Date();
+      document.getElementById('calendarGrid').innerHTML = days.map(day => {
+        const dateStr = day.date.toISOString().split('T')[0];
+        const dayTodos = todos.filter(t => t.dueDate === dateStr);
+        const isToday = day.date.toDateString() === today.toDateString();
+        const dow = day.date.getDay();
+
+        return `
+          <div class="min-h-24 p-1 md:p-2 border-b border-r border-slate-100 ${!day.isCurrentMonth ? 'bg-slate-50' : ''} ${isToday ? 'bg-blue-50' : ''}">
+            <div class="text-sm font-medium mb-1 ${!day.isCurrentMonth ? 'text-slate-300' : isToday ? 'text-blue-600' : dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-700'}">
+              ${day.date.getDate()}${isToday ? ' <span class="text-xs">(오늘)</span>' : ''}
+            </div>
+            <div class="space-y-1">
+              ${dayTodos.slice(0, 3).map(todo => {
+                const cat = TODO_CATEGORIES[todo.category] || TODO_CATEGORIES.other;
+                return `<div onclick="toggleTodo('${todo.id}')" class="text-xs p-1 rounded truncate cursor-pointer ${todo.completed ? 'line-through opacity-50 bg-slate-100' : cat.light}" title="${todo.text}">${todo.text}</div>`;
+              }).join('')}
+              ${dayTodos.length > 3 ? `<div class="text-xs text-slate-400 pl-1">+${dayTodos.length - 3}개</div>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function prevMonth() { currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1); renderCalendar(); }
+    function nextMonth() { currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1); renderCalendar(); }
+    function goToToday() { currentMonth = new Date(); renderCalendar(); }
+
+    // ==================== 외서 관리 ====================
+    function setRightsView(view) {
+      rightsView = view;
+      document.getElementById('rightsTableBtn').className = `px-4 py-2 rounded-md text-sm font-medium ${view === 'table' ? 'bg-white shadow-sm' : 'text-slate-600'}`;
+      document.getElementById('rightsKanbanBtn').className = `px-4 py-2 rounded-md text-sm font-medium ${view === 'kanban' ? 'bg-white shadow-sm' : 'text-slate-600'}`;
+      document.getElementById('rightsTableView').classList.toggle('hidden', view !== 'table');
+      document.getElementById('rightsKanbanView').classList.toggle('hidden', view !== 'kanban');
+      renderBooks();
+    }
+
+    function getStageColor(stageId) {
+      if (stageId <= 3) return '#f59e0b';
+      if (stageId <= 6) return '#3b82f6';
+      if (stageId <= 9) return '#8b5cf6';
+      if (stageId <= 12) return '#10b981';
+      return '#6b7280';
+    }
+
+    function renderBooks() {
+      const search = document.getElementById('bookSearch').value.toLowerCase();
+      const stageFilter = document.getElementById('stageFilter').value;
+      const countryFilter = document.getElementById('countryFilter').value;
+
+      const filtered = books.filter(book => {
+        const matchesSearch = book.title.toLowerCase().includes(search) || book.author.toLowerCase().includes(search) || book.publisher.toLowerCase().includes(search);
+        const matchesStage = stageFilter === 'all' || book.stage === parseInt(stageFilter);
+        const matchesCountry = countryFilter === 'all' || book.country === countryFilter;
+        return matchesSearch && matchesStage && matchesCountry;
+      });
+
+      if (rightsView === 'table') {
+        renderBooksTable(filtered);
+      } else {
+        renderBooksKanban(filtered);
+      }
+    }
+
+    function renderBooksTable(filtered) {
+      const tbody = document.getElementById('booksTableBody');
+      tbody.innerHTML = filtered.map(book => {
+        const stage = STAGES.find(s => s.id === book.stage);
+        return `
+          <tr class="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onclick="showEditBookModal(${book.id})">
+            <td class="p-4 font-medium text-slate-800">${book.title}</td>
+            <td class="p-4 text-slate-600">${book.author}</td>
+            <td class="p-4">${COUNTRY_FLAGS[book.country] || ''} ${book.country}</td>
+            <td class="p-4 text-slate-600">${book.publisher}</td>
+            <td class="p-4"><span class="stage-badge" style="background: ${getStageColor(book.stage)}20; color: ${getStageColor(book.stage)}">${stage?.icon} ${stage?.name}</span></td>
+            <td class="p-4 text-slate-600">${book.advance ? `${book.advance.toLocaleString()} ${book.currency}` : '-'}</td>
+            <td class="p-4 text-slate-600">${book.expiryDate || '-'}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function renderBooksKanban(filtered) {
+      const groups = [
+        { name: '협상 중', stages: [1, 2, 3] },
+        { name: '계약 진행', stages: [4, 5, 6] },
+        { name: '제작 중', stages: [7, 8, 9, 10] },
+        { name: '출간 완료', stages: [11, 12, 13, 14] }
+      ];
+
+      document.getElementById('kanbanBoard').innerHTML = groups.map(group => `
+        <div class="flex-shrink-0 w-72 bg-slate-100 rounded-xl p-4">
+          <h4 class="font-semibold text-slate-700 mb-4">${group.name} (${filtered.filter(b => group.stages.includes(b.stage)).length})</h4>
+          <div class="space-y-3">
+            ${filtered.filter(b => group.stages.includes(b.stage)).map(book => {
+              const stage = STAGES.find(s => s.id === book.stage);
+              return `
+                <div class="kanban-card" onclick="showEditBookModal(${book.id})">
+                  <div class="font-medium text-slate-800 mb-2">${book.title}</div>
+                  <div class="text-sm text-slate-500 mb-2">${book.author}</div>
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs">${COUNTRY_FLAGS[book.country]} ${book.country}</span>
+                    <span class="stage-badge text-xs" style="background: ${getStageColor(book.stage)}20; color: ${getStageColor(book.stage)}">${stage?.icon} ${stage?.name}</span>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function showEditBookModal(id) {
+      selectedBook = books.find(b => b.id === id);
+      if (!selectedBook) return;
+
+      const stage = STAGES.find(s => s.id === selectedBook.stage);
+      
+      document.getElementById('editBookContent').innerHTML = `
+        <div class="space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">도서명</label>
+              <input type="text" id="editTitle" value="${selectedBook.title}" class="input-field">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">저자</label>
+              <input type="text" id="editAuthor" value="${selectedBook.author}" class="input-field">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">국가</label>
+              <select id="editCountry" class="input-field">
+                ${COUNTRIES.map(c => `<option value="${c}" ${selectedBook.country === c ? 'selected' : ''}>${COUNTRY_FLAGS[c]} ${c}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">출판사</label>
+              <input type="text" id="editPublisher" value="${selectedBook.publisher}" class="input-field">
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-600 mb-2">진행 단계</label>
+            <div class="flex flex-wrap gap-2">
+              ${STAGES.map(s => `
+                <button onclick="updateBookStage(${s.id})" class="px-3 py-2 rounded-lg text-sm border-2 transition-colors ${selectedBook.stage === s.id ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 hover:border-slate-300'}">${s.icon} ${s.name}</button>
+              `).join('')}
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">계약일</label>
+              <input type="date" id="editContractDate" value="${selectedBook.contractDate || ''}" class="input-field">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">만료일</label>
+              <input type="date" id="editExpiryDate" value="${selectedBook.expiryDate || ''}" class="input-field">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">선인세</label>
+              <input type="number" id="editAdvance" value="${selectedBook.advance || 0}" class="input-field">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">통화</label>
+              <select id="editCurrency" class="input-field">
+                <option value="USD" ${selectedBook.currency === 'USD' ? 'selected' : ''}>USD</option>
+                <option value="EUR" ${selectedBook.currency === 'EUR' ? 'selected' : ''}>EUR</option>
+                <option value="JPY" ${selectedBook.currency === 'JPY' ? 'selected' : ''}>JPY</option>
+                <option value="CNY" ${selectedBook.currency === 'CNY' ? 'selected' : ''}>CNY</option>
+              </select>
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-600 mb-1">메모</label>
+            <textarea id="editNotes" class="input-field" rows="3">${selectedBook.notes || ''}</textarea>
+          </div>
+          <div class="flex justify-between pt-4 border-t">
+            <button onclick="deleteBook(${selectedBook.id})" class="btn btn-danger">삭제</button>
+            <div class="flex gap-3">
+              <button onclick="closeModal('editBookModal')" class="btn btn-secondary">취소</button>
+              <button onclick="saveBook()" class="btn btn-primary">저장</button>
+            </div>
+          </div>
+        </div>
+      `;
+      
+      document.getElementById('editBookModal').classList.remove('hidden');
+    }
+
+    function updateBookStage(stageId) {
+      selectedBook.stage = stageId;
+      showEditBookModal(selectedBook.id);
+    }
+
+    function saveBook() {
+      selectedBook.title = document.getElementById('editTitle').value;
+      selectedBook.author = document.getElementById('editAuthor').value;
+      selectedBook.country = document.getElementById('editCountry').value;
+      selectedBook.publisher = document.getElementById('editPublisher').value;
+      selectedBook.contractDate = document.getElementById('editContractDate').value;
+      selectedBook.expiryDate = document.getElementById('editExpiryDate').value;
+      selectedBook.advance = parseFloat(document.getElementById('editAdvance').value) || 0;
+      selectedBook.currency = document.getElementById('editCurrency').value;
+      selectedBook.notes = document.getElementById('editNotes').value;
+
+      books = books.map(b => b.id === selectedBook.id ? selectedBook : b);
+      saveBooks();
+      renderBooks();
+      updateAlertsBadge();
+      closeModal('editBookModal');
+      showToast('저장되었습니다');
+    }
+
+    function deleteBook(id) {
+      if (confirm('정말 삭제하시겠습니까?')) {
+        books = books.filter(b => b.id !== id);
+        saveBooks();
+        renderBooks();
+        closeModal('editBookModal');
+        showToast('삭제되었습니다');
+      }
+    }
+
+    function showAddBookModal() {
+      document.getElementById('addBookContent').innerHTML = `
+        <div class="space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">도서명 *</label>
+              <input type="text" id="newBookTitle" class="input-field" placeholder="도서명">
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">저자 *</label>
+              <input type="text" id="newBookAuthor" class="input-field" placeholder="저자">
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">국가</label>
+              <select id="newBookCountry" class="input-field">
+                ${COUNTRIES.map(c => `<option value="${c}">${COUNTRY_FLAGS[c]} ${c}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">출판사</label>
+              <input type="text" id="newBookPublisher" class="input-field" placeholder="해외 출판사">
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-600 mb-2">시작 단계</label>
+            <div class="flex flex-wrap gap-2" id="newBookStageButtons"></div>
+          </div>
+          <div class="flex justify-end gap-3 pt-4">
+            <button onclick="closeModal('addBookModal')" class="btn btn-secondary">취소</button>
+            <button onclick="addBook()" class="btn btn-primary">등록</button>
+          </div>
+        </div>
+      `;
+
+      // 단계 버튼 생성
+      let selectedStage = 1;
+      const stageContainer = document.getElementById('newBookStageButtons');
+      stageContainer.innerHTML = STAGES.slice(0, 6).map(s => `
+        <button onclick="document.querySelectorAll('#newBookStageButtons button').forEach(b => b.className = 'px-3 py-2 rounded-lg text-sm border-2 border-slate-200'); this.className = 'px-3 py-2 rounded-lg text-sm border-2 border-blue-500 bg-blue-50 text-blue-700'; window.newBookStage = ${s.id}" class="px-3 py-2 rounded-lg text-sm border-2 ${s.id === 1 ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200'}">${s.icon} ${s.name}</button>
+      `).join('');
+      window.newBookStage = 1;
+
+      document.getElementById('addBookModal').classList.remove('hidden');
+    }
+
+    function addBook() {
+      const title = document.getElementById('newBookTitle').value.trim();
+      const author = document.getElementById('newBookAuthor').value.trim();
+      if (!title || !author) {
+        showToast('도서명과 저자를 입력해주세요', 'error');
+        return;
+      }
+
+      const newBook = {
+        id: Date.now(),
+        title,
+        author,
+        country: document.getElementById('newBookCountry').value,
+        publisher: document.getElementById('newBookPublisher').value,
+        stage: window.newBookStage || 1,
+        contractDate: '',
+        expiryDate: '',
+        advance: 0,
+        currency: 'USD',
+        notes: '',
+        royalties: []
+      };
+
+      books.push(newBook);
+      saveBooks();
+      renderBooks();
+      closeModal('addBookModal');
+      showToast('등록되었습니다');
+    }
+
+    function saveBooks() {
+      localStorage.setItem('rights-books', JSON.stringify(books));
+    }
+
+    // ==================== 알림 ====================
+    function getAlerts() {
+      const today = new Date();
+      return books.filter(book => {
+        if (!book.expiryDate) return false;
+        const expiry = new Date(book.expiryDate);
+        const daysUntil = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
+        return daysUntil <= 90 && daysUntil > 0;
+      }).map(book => {
+        const expiry = new Date(book.expiryDate);
+        const daysUntil = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
+        return { ...book, daysUntil };
+      }).sort((a, b) => a.daysUntil - b.daysUntil);
+    }
+
+    function updateAlertsBadge() {
+      const alerts = getAlerts();
+      const badge = document.getElementById('alertsBadge');
+      if (alerts.length > 0) {
+        badge.textContent = alerts.length;
+        badge.classList.remove('hidden');
+      } else {
+        badge.classList.add('hidden');
+      }
+    }
+
+    function showAlertsModal() {
+      const alerts = getAlerts();
+      
+      document.getElementById('alertsContent').innerHTML = alerts.length === 0 ? `
+        <div class="text-center py-8 text-slate-400">
+          <div class="text-4xl mb-4">✨</div>
+          <div>90일 내 만료 예정인 계약이 없습니다</div>
+        </div>
+      ` : `
+        <div class="space-y-3">
+          ${alerts.map(book => `
+            <div onclick="closeModal('alertsModal'); showEditBookModal(${book.id})" class="p-4 rounded-xl cursor-pointer transition-all hover:scale-102 ${book.daysUntil <= 30 ? 'bg-red-50 border border-red-200' : book.daysUntil <= 60 ? 'bg-yellow-50 border border-yellow-200' : 'bg-green-50 border border-green-200'}">
+              <div class="flex justify-between items-start">
+                <div>
+                  <div class="font-semibold">${book.title}</div>
+                  <div class="text-sm text-slate-500">${COUNTRY_FLAGS[book.country]} ${book.country} • ${book.publisher}</div>
+                </div>
+                <span class="px-3 py-1 rounded-full text-sm font-semibold text-white ${book.daysUntil <= 30 ? 'bg-red-500' : book.daysUntil <= 60 ? 'bg-yellow-500' : 'bg-green-500'}">D-${book.daysUntil}</span>
+              </div>
+              <div class="text-xs text-slate-500 mt-2">만료일: ${book.expiryDate}</div>
+            </div>
+          `).join('')}
+        </div>
+      `;
+      
+      document.getElementById('alertsModal').classList.remove('hidden');
+    }
+
+    // ==================== 엑셀 내보내기 ====================
+    function exportToExcel() {
+      const data = books.map(book => ({
+        '도서명': book.title,
+        '저자': book.author,
+        '국가': book.country,
+        '출판사': book.publisher,
+        '진행 단계': STAGES.find(s => s.id === book.stage)?.name || '',
+        '선인세': book.advance,
+        '통화': book.currency,
+        '계약일': book.contractDate,
+        '만료일': book.expiryDate,
+        '메모': book.notes
+      }));
+
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '외서 관리');
+      XLSX.writeFile(wb, `외서관리_${new Date().toISOString().split('T')[0]}.xlsx`);
+      showToast('엑셀 파일이 다운로드됩니다');
+    }
+
+    // ==================== 모달 ====================
+    function closeModal(id) {
+      document.getElementById(id).classList.add('hidden');
+    }
+  </script>
+</body>
+</html>
