@@ -40,13 +40,24 @@
   <div id="app">
     <!-- 설정 모달 -->
     <div id="setupModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-      <div class="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl">
-        <h2 class="text-xl font-bold text-slate-800 mb-4">🔗 Google Sheets 연결</h2>
-        <p class="text-slate-600 text-sm mb-4">Apps Script 웹 앱 URL을 입력하면 모든 데이터가 자동 동기화됩니다.</p>
-        <input type="text" id="apiUrlInput" placeholder="https://script.google.com/macros/s/..." class="w-full px-4 py-3 bg-slate-50 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm mb-4">
+      <div class="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl max-h-[90vh] overflow-y-auto">
+        <h2 class="text-xl font-bold text-slate-800 mb-4">⚙️ 설정</h2>
+        
+        <div class="mb-6">
+          <h3 class="font-semibold text-slate-700 mb-2">🔗 Google Sheets 연결</h3>
+          <p class="text-slate-600 text-sm mb-3">Apps Script 웹 앱 URL을 입력하면 모든 데이터가 자동 동기화됩니다.</p>
+          <input type="text" id="apiUrlInput" placeholder="https://script.google.com/macros/s/..." class="w-full px-4 py-3 bg-slate-50 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm mb-2">
+        </div>
+        
+        <div class="mb-6">
+          <h3 class="font-semibold text-slate-700 mb-2">💱 환율 설정 (1 외화 = N 원)</h3>
+          <p class="text-slate-500 text-xs mb-3">연간 입금 누적액 계산에 사용됩니다.</p>
+          <div class="grid grid-cols-2 gap-2" id="exchangeRatesInputs"></div>
+        </div>
+        
         <div class="flex gap-3">
-          <button onclick="skipSetup()" class="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors">나중에</button>
-          <button onclick="saveApiUrl()" class="flex-1 py-3 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600 transition-colors">연결하기</button>
+          <button onclick="skipSetup()" class="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors">닫기</button>
+          <button onclick="saveSettings()" class="flex-1 py-3 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600 transition-colors">저장</button>
         </div>
       </div>
     </div>
@@ -172,9 +183,15 @@
       <div id="rightsSection" class="hidden p-4 md:p-8">
         <div class="max-w-6xl mx-auto">
           <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
-            <div>
-              <h2 class="text-2xl font-bold text-slate-800 mb-1">외서 수입 관리</h2>
-              <p class="text-slate-500 text-sm">해외 저작권 계약 현황</p>
+            <div class="flex items-center gap-4">
+              <div>
+                <h2 class="text-2xl font-bold text-slate-800 mb-1">외서 수입 관리</h2>
+                <p class="text-slate-500 text-sm">해외 저작권 계약 현황</p>
+              </div>
+              <div id="yearlyTotal" class="bg-gradient-to-r from-green-50 to-emerald-50 border border-green-200 rounded-xl px-4 py-2">
+                <div class="text-xs text-green-600 font-medium">📈 <span id="yearlyTotalYear"></span> 입금 누적</div>
+                <div class="text-lg font-bold text-green-700" id="yearlyTotalAmount">₩0</div>
+              </div>
             </div>
             <div class="flex items-center gap-3">
               <button onclick="showAlertsModal()" id="alertsBtn" class="relative btn btn-secondary">
@@ -288,6 +305,30 @@
     const COUNTRIES = ['일본', '중국', '대만', '태국', '베트남', '인도네시아', '미국', '영국', '프랑스', '독일', '스페인', '이탈리아', '러시아', '폴란드', '터키'];
     const COUNTRY_FLAGS = { '일본': '🇯🇵', '중국': '🇨🇳', '대만': '🇹🇼', '태국': '🇹🇭', '베트남': '🇻🇳', '인도네시아': '🇮🇩', '미국': '🇺🇸', '영국': '🇬🇧', '프랑스': '🇫🇷', '독일': '🇩🇪', '스페인': '🇪🇸', '이탈리아': '🇮🇹', '러시아': '🇷🇺', '폴란드': '🇵🇱', '터키': '🇹🇷' };
     const CURRENCIES = ['USD', 'EUR', 'JPY', 'CNY', 'TWD', 'THB', 'VND', 'IDR', 'GBP', 'RUB', 'RMB'];
+
+    // 기본 환율 (1 외화 = N 원) - 설정에서 변경 가능
+    const DEFAULT_EXCHANGE_RATES = {
+      USD: 1450,
+      EUR: 1550,
+      JPY: 9.5,
+      CNY: 200,
+      TWD: 44,
+      THB: 42,
+      VND: 0.058,
+      IDR: 0.089,
+      GBP: 1850,
+      RUB: 15,
+      RMB: 200
+    };
+    
+    function getExchangeRates() {
+      const saved = localStorage.getItem('exchangeRates');
+      return saved ? JSON.parse(saved) : DEFAULT_EXCHANGE_RATES;
+    }
+    
+    function saveExchangeRates(rates) {
+      localStorage.setItem('exchangeRates', JSON.stringify(rates));
+    }
 
     const DEFAULT_AGENCIES = ['에릭양', '대니홍', '메이', '레나', 'BC', '오렌지', '신원', 'CA-LINK', '유니', '소미미디어', '동주', 'MJ'];
     
@@ -409,6 +450,17 @@
     // ==================== 설정 ====================
     function showSetup() {
       document.getElementById('apiUrlInput').value = API_URL;
+      
+      // 환율 입력칸 생성
+      const rates = getExchangeRates();
+      const container = document.getElementById('exchangeRatesInputs');
+      container.innerHTML = CURRENCIES.map(cur => `
+        <div class="flex items-center gap-1">
+          <span class="text-xs font-medium text-slate-600 w-10">${cur}</span>
+          <input type="number" id="rate_${cur}" value="${rates[cur] || 0}" class="input-field text-sm py-1 flex-1" step="0.01">
+        </div>
+      `).join('');
+      
       document.getElementById('setupModal').classList.remove('hidden');
     }
 
@@ -417,21 +469,42 @@
       document.getElementById('mainContent').classList.remove('hidden');
     }
 
-    async function saveApiUrl() {
+    async function saveSettings() {
+      // API URL 저장
       const url = document.getElementById('apiUrlInput').value.trim();
+      const urlChanged = url !== API_URL;
       API_URL = url;
       localStorage.setItem('publishingApiUrl', url);
+      
+      // 환율 저장
+      const rates = {};
+      CURRENCIES.forEach(cur => {
+        const input = document.getElementById('rate_' + cur);
+        if (input) {
+          rates[cur] = parseFloat(input.value) || 0;
+        }
+      });
+      saveExchangeRates(rates);
+      
       document.getElementById('setupModal').classList.add('hidden');
-      document.getElementById('loadingScreen').classList.remove('hidden');
-      if (url) {
+      
+      if (urlChanged && url) {
+        document.getElementById('loadingScreen').classList.remove('hidden');
         await loadAllData();
         renderTodos();
         renderBooks();
         updateAlertsBadge();
+        document.getElementById('loadingScreen').classList.add('hidden');
+      } else {
+        renderBooks(); // 환율 변경 시 연간 누적액 업데이트
       }
-      document.getElementById('loadingScreen').classList.add('hidden');
+      
       document.getElementById('mainContent').classList.remove('hidden');
-      showToast('연결되었습니다!');
+      showToast('설정이 저장되었습니다!');
+    }
+
+    async function saveApiUrl() {
+      await saveSettings();
     }
 
     function showToast(message, type = 'success') {
@@ -651,6 +724,30 @@
       else renderBooksKanban(filtered);
       
       updateRoyaltySummary();
+      updateYearlyTotal();
+    }
+
+    function updateYearlyTotal() {
+      const currentYear = new Date().getFullYear();
+      const rates = getExchangeRates();
+      let totalKRW = 0;
+      
+      books.forEach(book => {
+        const currency = book.currency || 'USD';
+        const rate = rates[currency] || 1;
+        
+        (book.payments || []).forEach(p => {
+          if (p.paid && p.paidDate) {
+            const paidYear = new Date(p.paidDate).getFullYear();
+            if (paidYear === currentYear) {
+              totalKRW += (p.amount || 0) * rate;
+            }
+          }
+        });
+      });
+      
+      document.getElementById('yearlyTotalYear').textContent = currentYear + '년';
+      document.getElementById('yearlyTotalAmount').textContent = '₩' + Math.round(totalKRW).toLocaleString();
     }
 
     function initRoyaltySummaryYears() {
