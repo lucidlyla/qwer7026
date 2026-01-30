@@ -228,6 +228,7 @@
                       <th class="text-left p-4 font-semibold text-slate-600 text-sm">저자</th>
                       <th class="text-left p-4 font-semibold text-slate-600 text-sm">국가</th>
                       <th class="text-left p-4 font-semibold text-slate-600 text-sm">출판사</th>
+                      <th class="text-left p-4 font-semibold text-slate-600 text-sm">에이전시</th>
                       <th class="text-left p-4 font-semibold text-slate-600 text-sm">진행 단계</th>
                       <th class="text-left p-4 font-semibold text-slate-600 text-sm">선인세</th>
                       <th class="text-left p-4 font-semibold text-slate-600 text-sm">입금현황</th>
@@ -838,17 +839,19 @@
       // PC용 테이블
       const tbody = document.getElementById('booksTableBody');
       if (filtered.length === 0) {
-        tbody.innerHTML = '<tr><td colspan="7" class="p-8 text-center text-slate-400">등록된 도서가 없습니다</td></tr>';
+        tbody.innerHTML = '<tr><td colspan="8" class="p-8 text-center text-slate-400">등록된 도서가 없습니다</td></tr>';
       } else {
         tbody.innerHTML = filtered.map(book => {
           const stage = STAGES.find(s => s.id === book.stage);
           const paymentStatus = getPaymentStatus(book);
+          const agency = book.contract?.agency || '-';
           return `
             <tr class="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onclick="showEditBookModal('${book.id}')">
               <td class="p-4 font-medium text-slate-800">${book.title}</td>
               <td class="p-4 text-slate-600">${book.author}</td>
               <td class="p-4">${COUNTRY_FLAGS[book.country] || ''} ${book.country}</td>
               <td class="p-4 text-slate-600">${book.publisher || '-'}</td>
+              <td class="p-4 text-slate-600">${agency}</td>
               <td class="p-4"><span class="stage-badge" style="background: ${getStageColor(book.stage)}20; color: ${getStageColor(book.stage)}">${stage?.icon} ${stage?.name}</span></td>
               <td class="p-4 text-slate-600">${book.advance ? `${Number(book.advance).toLocaleString()} ${book.currency || 'USD'}` : '-'}</td>
               <td class="p-4 ${paymentStatus.class}">${paymentStatus.text}</td>
@@ -865,6 +868,7 @@
         cardList.innerHTML = filtered.map(book => {
           const stage = STAGES.find(s => s.id === book.stage);
           const paymentStatus = getPaymentStatus(book);
+          const agency = book.contract?.agency || '';
           return `
             <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100 cursor-pointer active:bg-slate-50" onclick="showEditBookModal('${book.id}')">
               <div class="flex justify-between items-start mb-2">
@@ -875,6 +879,7 @@
               <div class="flex flex-wrap gap-2 text-xs">
                 <span class="bg-slate-100 px-2 py-1 rounded">${COUNTRY_FLAGS[book.country] || ''} ${book.country}</span>
                 ${book.publisher ? `<span class="bg-slate-100 px-2 py-1 rounded">${book.publisher}</span>` : ''}
+                ${agency ? `<span class="bg-purple-50 text-purple-700 px-2 py-1 rounded">${agency}</span>` : ''}
                 ${book.advance ? `<span class="bg-blue-50 text-blue-700 px-2 py-1 rounded">${Number(book.advance).toLocaleString()} ${book.currency || 'USD'}</span>` : ''}
                 ${paymentStatus.text !== '-' ? `<span class="px-2 py-1 rounded ${paymentStatus.class === 'text-green-600' ? 'bg-green-50 text-green-700' : paymentStatus.class === 'text-red-600' ? 'bg-red-50 text-red-700' : 'bg-slate-100'}">${paymentStatus.text}</span>` : ''}
               </div>
