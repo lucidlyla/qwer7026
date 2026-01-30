@@ -280,6 +280,28 @@
     const COUNTRY_FLAGS = { '일본': '🇯🇵', '중국': '🇨🇳', '대만': '🇹🇼', '태국': '🇹🇭', '베트남': '🇻🇳', '인도네시아': '🇮🇩', '미국': '🇺🇸', '영국': '🇬🇧', '프랑스': '🇫🇷', '독일': '🇩🇪', '스페인': '🇪🇸', '이탈리아': '🇮🇹', '러시아': '🇷🇺', '폴란드': '🇵🇱', '터키': '🇹🇷' };
     const CURRENCIES = ['USD', 'EUR', 'JPY', 'CNY', 'TWD', 'THB', 'VND', 'IDR', 'GBP', 'RUB', 'RMB'];
 
+    const DEFAULT_AGENCIES = ['에릭양', '대니홍', '메이', '레나', 'BC', '오렌지', '신원', 'CA-LINK', '유니', '소미미디어', '동주', 'MJ'];
+    
+    function getAgencies() {
+      const saved = localStorage.getItem('agencies');
+      if (saved) {
+        const list = JSON.parse(saved);
+        // 기본 목록과 합치고 중복 제거
+        return [...new Set([...DEFAULT_AGENCIES, ...list])];
+      }
+      return DEFAULT_AGENCIES;
+    }
+    
+    function addAgency(name) {
+      if (!name || name.trim() === '') return;
+      const agencies = getAgencies();
+      if (!agencies.includes(name.trim())) {
+        const saved = JSON.parse(localStorage.getItem('agencies') || '[]');
+        saved.push(name.trim());
+        localStorage.setItem('agencies', JSON.stringify(saved));
+      }
+    }
+
     const TODO_CATEGORIES = {
       manuscript: { name: '원고 검토', color: 'bg-blue-500', light: 'bg-blue-100 text-blue-700' },
       planning: { name: '기획안', color: 'bg-purple-500', light: 'bg-purple-100 text-purple-700' },
@@ -707,7 +729,10 @@
               </div>
               <div>
                 <label class="block text-sm font-medium text-slate-600 mb-1">중개 에이전시</label>
-                <input type="text" id="editAgency" value="${c.agency || ''}" class="input-field">
+                <input type="text" id="editAgency" list="agencyList" value="${c.agency || ''}" class="input-field" placeholder="첫 글자 입력 시 자동완성">
+                <datalist id="agencyList">
+                  ${getAgencies().map(a => `<option value="${a}">`).join('')}
+                </datalist>
               </div>
             </div>
           </div>
@@ -725,7 +750,7 @@
           <!-- 계약 조건 -->
           <div class="tab-section">
             <div class="tab-section-title">📝 계약 조건</div>
-            <div class="grid grid-cols-3 gap-3">
+            <div class="grid grid-cols-3 gap-3 mb-4">
               <div>
                 <label class="block text-xs font-medium text-slate-600 mb-1">계약일</label>
                 <input type="date" id="editContractDate" value="${selectedBook.contractDate || ''}" class="input-field text-sm">
@@ -738,51 +763,99 @@
                 <label class="block text-xs font-medium text-slate-600 mb-1">계약 기간 (년)</label>
                 <input type="number" id="editContractYears" value="${c.years || ''}" class="input-field text-sm" placeholder="예: 5">
               </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-600 mb-1">선인세</label>
-                <input type="number" id="editAdvance" value="${selectedBook.advance || ''}" class="input-field text-sm">
+            </div>
+            
+            <div class="border-t border-slate-200 pt-4 mb-4">
+              <div class="text-xs font-semibold text-slate-500 mb-2">💰 선인세</div>
+              <div class="grid grid-cols-6 gap-3 mb-2">
+                <div class="col-span-2">
+                  <label class="block text-xs font-medium text-slate-600 mb-1">종이책</label>
+                  <input type="number" id="editAdvance" value="${selectedBook.advance || ''}" class="input-field text-sm">
+                </div>
+                <div class="col-span-2">
+                  <label class="block text-xs font-medium text-slate-600 mb-1">전자책</label>
+                  <input type="number" id="editAdvanceEbook" value="${c.advanceEbook || ''}" class="input-field text-sm">
+                </div>
+                <div class="col-span-2">
+                  <label class="block text-xs font-medium text-slate-600 mb-1">오디오북</label>
+                  <input type="number" id="editAdvanceAudio" value="${c.advanceAudio || ''}" class="input-field text-sm">
+                </div>
               </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-600 mb-1">통화</label>
-                <select id="editCurrency" class="input-field text-sm">
-                  ${CURRENCIES.map(cur => `<option value="${cur}" ${selectedBook.currency === cur ? 'selected' : ''}>${cur}</option>`).join('')}
-                </select>
+              <div class="grid grid-cols-6 gap-3">
+                <div class="col-span-2">
+                  <label class="block text-xs font-medium text-slate-600 mb-1">기타</label>
+                  <input type="number" id="editAdvanceOther" value="${c.advanceOther || ''}" class="input-field text-sm">
+                </div>
+                <div class="col-span-2">
+                  <label class="block text-xs font-medium text-slate-600 mb-1">통화</label>
+                  <select id="editCurrency" class="input-field text-sm">
+                    ${CURRENCIES.map(cur => `<option value="${cur}" ${selectedBook.currency === cur ? 'selected' : ''}>${cur}</option>`).join('')}
+                  </select>
+                </div>
               </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-600 mb-1">데이터 비용</label>
-                <input type="number" id="editDataFee" value="${c.dataFee || ''}" class="input-field text-sm">
+            </div>
+
+            <div class="border-t border-slate-200 pt-4 mb-4">
+              <div class="text-xs font-semibold text-slate-500 mb-2">📁 데이터 비용</div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">데이터 비용</label>
+                  <input type="number" id="editDataFee" value="${c.dataFee || ''}" class="input-field text-sm">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">통화</label>
+                  <select id="editDataCurrency" class="input-field text-sm">
+                    ${CURRENCIES.map(cur => `<option value="${cur}" ${c.dataCurrency === cur ? 'selected' : ''}>${cur}</option>`).join('')}
+                  </select>
+                </div>
               </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-600 mb-1">인세율 (%)</label>
-                <input type="number" id="editRoyaltyRate" value="${c.royaltyRate || ''}" class="input-field text-sm" step="0.1" placeholder="예: 8">
+            </div>
+
+            <div class="border-t border-slate-200 pt-4 mb-4">
+              <div class="text-xs font-semibold text-slate-500 mb-2">📊 인세율 (%)</div>
+              <div class="grid grid-cols-4 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">종이책</label>
+                  <input type="number" id="editRoyaltyRate" value="${c.royaltyRate || ''}" class="input-field text-sm" step="0.1" placeholder="예: 8">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">전자책</label>
+                  <input type="text" id="editEbookRate" value="${c.ebookRate || ''}" class="input-field text-sm" placeholder="예: 25">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">오디오북</label>
+                  <input type="text" id="editAudioRate" value="${c.audioRate || ''}" class="input-field text-sm" placeholder="예: 25">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">기타</label>
+                  <input type="text" id="editOtherRate" value="${c.otherRate || ''}" class="input-field text-sm">
+                </div>
               </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-600 mb-1">전자책 인세</label>
-                <input type="text" id="editEbookRate" value="${c.ebookRate || ''}" class="input-field text-sm" placeholder="예: 순수입의 25%">
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-600 mb-1">오디오북 인세</label>
-                <input type="text" id="editAudioRate" value="${c.audioRate || ''}" class="input-field text-sm">
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-600 mb-1">초판 부수</label>
-                <input type="number" id="editFirstPrint" value="${c.firstPrint || ''}" class="input-field text-sm">
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-600 mb-1">현지 판매가</label>
-                <input type="text" id="editLocalPrice" value="${c.localPrice || ''}" class="input-field text-sm" placeholder="예: 450NTD">
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-600 mb-1">원천징수 (%)</label>
-                <input type="number" id="editWithholding" value="${c.withholding || ''}" class="input-field text-sm" step="0.1" placeholder="예: 20">
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-600 mb-1">에이전시 수수료 (%)</label>
-                <input type="number" id="editAgencyFee" value="${c.agencyFee || ''}" class="input-field text-sm" step="0.1" placeholder="예: 10">
-              </div>
-              <div>
-                <label class="block text-xs font-medium text-slate-600 mb-1">증정 부수</label>
-                <input type="number" id="editFreeCopies" value="${c.freeCopies || ''}" class="input-field text-sm">
+            </div>
+
+            <div class="border-t border-slate-200 pt-4">
+              <div class="text-xs font-semibold text-slate-500 mb-2">📋 기타 조건</div>
+              <div class="grid grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">초판 부수</label>
+                  <input type="number" id="editFirstPrint" value="${c.firstPrint || ''}" class="input-field text-sm">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">현지 판매가</label>
+                  <input type="text" id="editLocalPrice" value="${c.localPrice || ''}" class="input-field text-sm" placeholder="예: 450NTD">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">원천징수 (%)</label>
+                  <input type="number" id="editWithholding" value="${c.withholding || ''}" class="input-field text-sm" step="0.1" placeholder="예: 20">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">에이전시 수수료 (%)</label>
+                  <input type="number" id="editAgencyFee" value="${c.agencyFee || ''}" class="input-field text-sm" step="0.1" placeholder="예: 10">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">증정 부수</label>
+                  <input type="number" id="editFreeCopies" value="${c.freeCopies || ''}" class="input-field text-sm">
+                </div>
               </div>
             </div>
           </div>
@@ -877,16 +950,24 @@
       selectedBook.contract = {
         agency: document.getElementById('editAgency').value,
         years: parseInt(document.getElementById('editContractYears').value) || 0,
+        advanceEbook: parseFloat(document.getElementById('editAdvanceEbook').value) || 0,
+        advanceAudio: parseFloat(document.getElementById('editAdvanceAudio').value) || 0,
+        advanceOther: parseFloat(document.getElementById('editAdvanceOther').value) || 0,
         dataFee: parseFloat(document.getElementById('editDataFee').value) || 0,
+        dataCurrency: document.getElementById('editDataCurrency').value,
         royaltyRate: parseFloat(document.getElementById('editRoyaltyRate').value) || 0,
         ebookRate: document.getElementById('editEbookRate').value,
         audioRate: document.getElementById('editAudioRate').value,
+        otherRate: document.getElementById('editOtherRate').value,
         firstPrint: parseInt(document.getElementById('editFirstPrint').value) || 0,
         localPrice: document.getElementById('editLocalPrice').value,
         withholding: parseFloat(document.getElementById('editWithholding').value) || 0,
         agencyFee: parseFloat(document.getElementById('editAgencyFee').value) || 0,
         freeCopies: parseInt(document.getElementById('editFreeCopies').value) || 0,
       };
+      
+      // 새 에이전시 저장
+      addAgency(selectedBook.contract.agency);
 
       books = books.map(b => b.id.toString() === selectedBook.id.toString() ? selectedBook : b);
       localStorage.setItem('rights-books', JSON.stringify(books));
@@ -1078,12 +1159,17 @@
           '출판사': book.publisher || '',
           '중개 에이전시': c.agency || '',
           '진행 단계': STAGES.find(s => s.id === book.stage)?.name || '',
-          '선인세': book.advance || 0,
-          '통화': book.currency || '',
+          '종이책 선인세': book.advance || 0,
+          '전자책 선인세': c.advanceEbook || 0,
+          '오디오북 선인세': c.advanceAudio || 0,
+          '기타 선인세': c.advanceOther || 0,
+          '선인세 통화': book.currency || '',
           '데이터비용': c.dataFee || '',
-          '인세율(%)': c.royaltyRate || '',
-          '전자책 인세': c.ebookRate || '',
-          '오디오북 인세': c.audioRate || '',
+          '데이터비용 통화': c.dataCurrency || '',
+          '종이책 인세(%)': c.royaltyRate || '',
+          '전자책 인세(%)': c.ebookRate || '',
+          '오디오북 인세(%)': c.audioRate || '',
+          '기타 인세(%)': c.otherRate || '',
           '초판 부수': c.firstPrint || '',
           '현지 판매가': c.localPrice || '',
           '계약 기간(년)': c.years || '',
