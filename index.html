@@ -197,6 +197,15 @@
             </div>
           </div>
 
+          <!-- 연간 인세 합계 -->
+          <div id="royaltySummary" class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-5 shadow-sm border border-blue-100 mb-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-bold text-slate-700">💰 연간 인세 현황</h3>
+              <select id="summaryYear" class="input-field text-sm w-auto" onchange="updateRoyaltySummary()"></select>
+            </div>
+            <div id="royaltySummaryContent" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
+          </div>
+
           <div id="rightsTableView" class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
             <div class="overflow-x-auto">
               <table class="w-full">
@@ -225,7 +234,7 @@
 
     <!-- 도서 편집 모달 -->
     <div id="editBookModal" class="hidden modal-overlay" onclick="closeModal('editBookModal')">
-      <div class="modal-content w-full max-w-3xl p-6" onclick="event.stopPropagation()">
+      <div class="modal-content w-full max-w-4xl p-6" onclick="event.stopPropagation()">
         <div class="flex justify-between items-center mb-6">
           <h3 class="text-xl font-bold text-slate-800">📖 도서 상세 / 계약 조건</h3>
           <button onclick="closeModal('editBookModal')" class="text-2xl text-slate-400 hover:text-slate-600">×</button>
@@ -640,6 +649,106 @@
 
       if (rightsView === 'table') renderBooksTable(filtered);
       else renderBooksKanban(filtered);
+      
+      updateRoyaltySummary();
+    }
+
+    function initRoyaltySummaryYears() {
+      const years = new Set();
+      const currentYear = new Date().getFullYear();
+      years.add(currentYear);
+      
+      books.forEach(book => {
+        (book.payments || []).forEach(p => {
+          if (p.paidDate) {
+            years.add(new Date(p.paidDate).getFullYear());
+          }
+          if (p.dueDate) {
+            years.add(new Date(p.dueDate).getFullYear());
+          }
+        });
+      });
+      
+      const select = document.getElementById('summaryYear');
+      if (select) {
+        const sortedYears = Array.from(years).sort((a, b) => b - a);
+        select.innerHTML = sortedYears.map(y => `<option value="${y}">${y}년</option>`).join('');
+      }
+    }
+
+    function updateRoyaltySummary() {
+      initRoyaltySummaryYears();
+      
+      const selectedYear = parseInt(document.getElementById('summaryYear')?.value) || new Date().getFullYear();
+      const content = document.getElementById('royaltySummaryContent');
+      if (!content) return;
+      
+      // 통화별 입금 합계 계산
+      const paidByCurrency = {};
+      const pendingByCurrency = {};
+      const bookSummaries = [];
+      
+      books.forEach(book => {
+        const currency = book.currency || 'USD';
+        let bookPaid = 0;
+        let bookPending = 0;
+        
+        (book.payments || []).forEach(p => {
+          const amount = p.amount || 0;
+          
+          if (p.paid && p.paidDate) {
+            const paidYear = new Date(p.paidDate).getFullYear();
+            if (paidYear === selectedYear) {
+              paidByCurrency[currency] = (paidByCurrency[currency] || 0) + amount;
+              bookPaid += amount;
+            }
+          } else if (p.dueDate) {
+            const dueYear = new Date(p.dueDate).getFullYear();
+            if (dueYear === selectedYear) {
+              pendingByCurrency[currency] = (pendingByCurrency[currency] || 0) + amount;
+              bookPending += amount;
+            }
+          }
+        });
+        
+        if (bookPaid > 0 || bookPending > 0) {
+          bookSummaries.push({ title: book.title, country: book.country, currency, paid: bookPaid, pending: bookPending });
+        }
+      });
+      
+      // 총액 표시
+      const allCurrencies = [...new Set([...Object.keys(paidByCurrency), ...Object.keys(pendingByCurrency)])];
+      
+      let html = `
+        <div class="bg-white rounded-xl p-4 border border-green-200">
+          <div class="text-xs text-slate-500 mb-1">💵 입금 완료</div>
+          <div class="font-bold text-green-600">
+            ${Object.keys(paidByCurrency).length === 0 ? '-' : 
+              Object.entries(paidByCurrency).map(([cur, amt]) => `${amt.toLocaleString()} ${cur}`).join('<br>')}
+          </div>
+        </div>
+        <div class="bg-white rounded-xl p-4 border border-yellow-200">
+          <div class="text-xs text-slate-500 mb-1">⏳ 입금 예정</div>
+          <div class="font-bold text-yellow-600">
+            ${Object.keys(pendingByCurrency).length === 0 ? '-' : 
+              Object.entries(pendingByCurrency).map(([cur, amt]) => `${amt.toLocaleString()} ${cur}`).join('<br>')}
+          </div>
+        </div>
+        <div class="bg-white rounded-xl p-4 border border-blue-200 col-span-2">
+          <div class="text-xs text-slate-500 mb-2">📚 도서별 현황</div>
+          <div class="max-h-32 overflow-y-auto">
+            ${bookSummaries.length === 0 ? '<div class="text-slate-400 text-sm">데이터 없음</div>' :
+              bookSummaries.map(b => `
+                <div class="flex justify-between text-sm py-1 border-b border-slate-100">
+                  <span class="text-slate-700">${COUNTRY_FLAGS[b.country] || ''} ${b.title}</span>
+                  <span class="${b.paid > 0 ? 'text-green-600' : 'text-yellow-600'}">${(b.paid || b.pending).toLocaleString()} ${b.currency}</span>
+                </div>
+              `).join('')}
+          </div>
+        </div>
+      `;
+      
+      content.innerHTML = html;
     }
 
     function renderBooksTable(filtered) {
@@ -861,12 +970,18 @@
                   <input type="number" id="editWithholding" value="${c.withholding || ''}" class="input-field text-sm" step="0.1" placeholder="예: 20">
                 </div>
                 <div>
-                  <label class="block text-xs font-medium text-slate-600 mb-1">종이책 인세보고 예정일</label>
-                  <input type="date" id="editPrintRoyaltyDate" value="${c.printRoyaltyDate || ''}" class="input-field text-sm">
+                  <label class="block text-xs font-medium text-slate-600 mb-1">종이책 인세보고 (매년)</label>
+                  <select id="editPrintRoyaltyMonth" class="input-field text-sm">
+                    <option value="">선택</option>
+                    ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => `<option value="${m}" ${c.printRoyaltyMonth == m ? 'selected' : ''}>${m}월</option>`).join('')}
+                  </select>
                 </div>
                 <div>
-                  <label class="block text-xs font-medium text-slate-600 mb-1">전자책 인세보고 예정일</label>
-                  <input type="date" id="editEbookRoyaltyDate" value="${c.ebookRoyaltyDate || ''}" class="input-field text-sm">
+                  <label class="block text-xs font-medium text-slate-600 mb-1">전자책 인세보고 (매년)</label>
+                  <select id="editEbookRoyaltyMonth" class="input-field text-sm">
+                    <option value="">선택</option>
+                    ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => `<option value="${m}" ${c.ebookRoyaltyMonth == m ? 'selected' : ''}>${m}월</option>`).join('')}
+                  </select>
                 </div>
               </div>
             </div>
@@ -904,17 +1019,17 @@
       const statementOverdue = p.paid && p.paidDate && !p.statementReceived && isStatementOverdue(p.paidDate);
       return `
         <div class="payment-row ${overdue ? 'overdue' : ''} ${p.paid ? 'paid' : ''}" style="${statementOverdue ? 'opacity:1;background:#fef3c7;border:1px solid #fcd34d;' : ''}">
-          <input type="text" value="${p.label || ''}" placeholder="명목" class="input-field text-sm" style="flex:1;min-width:80px;" onchange="updatePayment(${index}, 'label', this.value)">
-          <input type="number" value="${p.amount || ''}" placeholder="금액" class="input-field text-sm" style="width:70px;" onchange="updatePayment(${index}, 'amount', this.value)">
-          <input type="date" value="${p.dueDate || ''}" class="input-field text-sm" style="width:120px;" onchange="updatePayment(${index}, 'dueDate', this.value)" title="입금 예정일">
-          <label class="flex items-center gap-1 text-xs whitespace-nowrap">
+          <input type="text" value="${p.label || ''}" placeholder="명목 (예: 1차 선인세)" class="input-field text-sm" style="flex:2;min-width:150px;" onchange="updatePayment(${index}, 'label', this.value)">
+          <input type="number" value="${p.amount || ''}" placeholder="금액" class="input-field text-sm" style="width:100px;" onchange="updatePayment(${index}, 'amount', this.value)">
+          <input type="date" value="${p.dueDate || ''}" class="input-field text-sm" style="width:140px;" onchange="updatePayment(${index}, 'dueDate', this.value)" title="입금 예정일">
+          <label class="flex items-center gap-2 text-sm whitespace-nowrap">
             <input type="checkbox" ${p.paid ? 'checked' : ''} onchange="updatePaymentPaid(${index}, this.checked)"> 입금
           </label>
-          ${p.paid ? `<input type="date" value="${p.paidDate || ''}" class="input-field text-sm" style="width:120px;" onchange="updatePayment(${index}, 'paidDate', this.value)" title="실제 입금일">` : ''}
-          ${p.paid ? `<label class="flex items-center gap-1 text-xs whitespace-nowrap">
+          ${p.paid ? `<input type="date" value="${p.paidDate || ''}" class="input-field text-sm" style="width:140px;" onchange="updatePayment(${index}, 'paidDate', this.value)" title="실제 입금일">` : ''}
+          ${p.paid ? `<label class="flex items-center gap-2 text-sm whitespace-nowrap">
             <input type="checkbox" ${p.statementReceived ? 'checked' : ''} onchange="updatePayment(${index}, 'statementReceived', this.checked)"> 정산서
           </label>` : ''}
-          <button onclick="removePayment(${index})" class="text-red-500 hover:bg-red-50 p-1 rounded">✕</button>
+          <button onclick="removePayment(${index})" class="text-red-500 hover:bg-red-50 p-2 rounded text-lg">✕</button>
           ${overdue ? '<span class="text-xs text-red-600 font-medium whitespace-nowrap">⚠️ 입금 7일 초과</span>' : ''}
           ${statementOverdue ? '<span class="text-xs text-yellow-700 font-medium whitespace-nowrap">⚠️ 정산서 미입수</span>' : ''}
         </div>
@@ -1001,8 +1116,8 @@
         withholding: parseFloat(document.getElementById('editWithholding').value) || 0,
         agencyFee: parseFloat(document.getElementById('editAgencyFee').value) || 0,
         freeCopies: parseInt(document.getElementById('editFreeCopies').value) || 0,
-        printRoyaltyDate: document.getElementById('editPrintRoyaltyDate').value,
-        ebookRoyaltyDate: document.getElementById('editEbookRoyaltyDate').value,
+        printRoyaltyMonth: parseInt(document.getElementById('editPrintRoyaltyMonth').value) || 0,
+        ebookRoyaltyMonth: parseInt(document.getElementById('editEbookRoyaltyMonth').value) || 0,
       };
       
       // 새 에이전시 저장
@@ -1141,25 +1256,29 @@
           }
         }
 
-        // 종이책 인세보고 연체 알림 (예정일 + 7일)
-        if (c.printRoyaltyDate) {
-          const reportDate = new Date(c.printRoyaltyDate);
-          reportDate.setDate(reportDate.getDate() + 7); // +7일
+        // 종이책 인세보고 연체 알림 (매년 해당 월 말 + 7일)
+        if (c.printRoyaltyMonth) {
+          const year = today.getFullYear();
+          const lastDayOfMonth = new Date(year, c.printRoyaltyMonth, 0); // 해당 월의 마지막 날
+          const deadline = new Date(lastDayOfMonth);
+          deadline.setDate(deadline.getDate() + 7); // +7일
           
-          const daysOverdue = Math.floor((today - reportDate) / (1000 * 60 * 60 * 24));
-          if (daysOverdue > 0) {
-            alerts.push({ type: 'royaltyPrint', book, daysOverdue, reportDate: c.printRoyaltyDate, message: `종이책 인세보고 ${daysOverdue}일 연체` });
+          if (today > deadline) {
+            const daysOverdue = Math.floor((today - deadline) / (1000 * 60 * 60 * 24));
+            alerts.push({ type: 'royaltyPrint', book, daysOverdue, reportMonth: c.printRoyaltyMonth, message: `종이책 인세보고 ${daysOverdue}일 연체` });
           }
         }
 
-        // 전자책 인세보고 연체 알림 (예정일 + 7일)
-        if (c.ebookRoyaltyDate) {
-          const reportDate = new Date(c.ebookRoyaltyDate);
-          reportDate.setDate(reportDate.getDate() + 7); // +7일
+        // 전자책 인세보고 연체 알림 (매년 해당 월 말 + 7일)
+        if (c.ebookRoyaltyMonth) {
+          const year = today.getFullYear();
+          const lastDayOfMonth = new Date(year, c.ebookRoyaltyMonth, 0); // 해당 월의 마지막 날
+          const deadline = new Date(lastDayOfMonth);
+          deadline.setDate(deadline.getDate() + 7); // +7일
           
-          const daysOverdue = Math.floor((today - reportDate) / (1000 * 60 * 60 * 24));
-          if (daysOverdue > 0) {
-            alerts.push({ type: 'royaltyEbook', book, daysOverdue, reportDate: c.ebookRoyaltyDate, message: `전자책 인세보고 ${daysOverdue}일 연체` });
+          if (today > deadline) {
+            const daysOverdue = Math.floor((today - deadline) / (1000 * 60 * 60 * 24));
+            alerts.push({ type: 'royaltyEbook', book, daysOverdue, reportMonth: c.ebookRoyaltyMonth, message: `전자책 인세보고 ${daysOverdue}일 연체` });
           }
         }
 
@@ -1239,7 +1358,7 @@
                   ${alert.type === 'payment' ? `<div class="text-sm text-red-600 mt-1">💰 ${alert.payment.label || '입금'}: ${alert.payment.amount?.toLocaleString()} ${alert.book.currency || ''}</div>` : ''}
                   ${alert.type === 'statement' ? `<div class="text-sm text-amber-600 mt-1">📄 ${alert.payment.label || '입금'}: 정산서 미입수</div>` : ''}
                   ${alert.type === 'publish' ? `<div class="text-sm text-orange-600 mt-1">📅 출간 기한: 계약일로부터 ${alert.deadline}개월</div>` : ''}
-                  ${isRoyalty ? `<div class="text-sm text-purple-600 mt-1">${royaltyLabel} 인세보고 예정일: ${alert.reportDate}</div>` : ''}
+                  ${isRoyalty ? `<div class="text-sm text-purple-600 mt-1">${royaltyLabel} 인세보고: 매년 ${alert.reportMonth}월</div>` : ''}
                 </div>
                 <span class="px-3 py-1 rounded-full text-sm font-semibold text-white ${badgeColor}">
                   ${alert.type === 'payment' || alert.type === 'publish' || alert.type === 'statement' || isRoyalty ? `+${alert.daysOverdue}일` : `D-${alert.daysUntil}`}
@@ -1249,7 +1368,7 @@
                 ${alert.type === 'payment' ? `입금 예정일: ${alert.payment.dueDate}` : 
                   alert.type === 'statement' ? `입금일: ${alert.payment.paidDate}` :
                   alert.type === 'publish' ? `계약 체결일: ${alert.book.contractDate}` :
-                  isRoyalty ? `인세보고 예정일 + 7일 초과` :
+                  isRoyalty ? `${alert.reportMonth}월 말 + 7일 초과` :
                   `만료일: ${alert.book.expiryDate}`}
               </div>
             </div>
@@ -1284,8 +1403,8 @@
           '초판 부수': c.firstPrint || '',
           '현지 판매가': c.localPrice || '',
           '출간 기한(개월)': c.publishDeadline || '',
-          '종이책 인세보고 예정일': c.printRoyaltyDate || '',
-          '전자책 인세보고 예정일': c.ebookRoyaltyDate || '',
+          '종이책 인세보고(매년)': c.printRoyaltyMonth ? `${c.printRoyaltyMonth}월` : '',
+          '전자책 인세보고(매년)': c.ebookRoyaltyMonth ? `${c.ebookRoyaltyMonth}월` : '',
           '계약 기간(년)': c.years || '',
           '원천징수(%)': c.withholding || '',
           '에이전시 수수료(%)': c.agencyFee || '',
