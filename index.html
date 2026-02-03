@@ -1,0 +1,1735 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>📚 출판 업무 관리</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+KR:wght@400;500;600;700&display=swap');
+    * { font-family: 'Noto Sans KR', sans-serif; }
+    .loader { border: 3px solid #f3f3f3; border-top: 3px solid #3b82f6; border-radius: 50%; width: 24px; height: 24px; animation: spin 1s linear infinite; display: inline-block; }
+    @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+    .modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); display: flex; align-items: center; justify-content: center; z-index: 50; padding: 16px; }
+    .modal-content { background: white; border-radius: 16px; max-height: 90vh; overflow-y: auto; }
+    .input-field { width: 100%; padding: 10px 14px; border: 1px solid #e2e8f0; border-radius: 8px; font-size: 14px; transition: all 0.2s; }
+    .input-field:focus { outline: none; border-color: #3b82f6; box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1); }
+    .btn { padding: 10px 20px; border-radius: 8px; font-weight: 500; cursor: pointer; transition: all 0.2s; border: none; }
+    .btn-primary { background: #3b82f6; color: white; }
+    .btn-primary:hover { background: #2563eb; }
+    .btn-secondary { background: #f1f5f9; color: #475569; }
+    .btn-secondary:hover { background: #e2e8f0; }
+    .btn-danger { background: #fee2e2; color: #dc2626; }
+    .btn-danger:hover { background: #fecaca; }
+    .btn-sm { padding: 6px 12px; font-size: 13px; }
+    .stage-badge { padding: 6px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; display: inline-flex; align-items: center; gap: 4px; }
+    .toast { position: fixed; bottom: 24px; right: 24px; padding: 16px 24px; border-radius: 12px; color: white; font-weight: 500; z-index: 100; animation: slideIn 0.3s ease; }
+    @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+    .kanban-card { background: white; border-radius: 12px; padding: 16px; margin-bottom: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); cursor: pointer; transition: all 0.2s; }
+    .kanban-card:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.15); }
+    .sync-indicator { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: #64748b; }
+    .tab-section { border: 1px solid #e2e8f0; border-radius: 12px; padding: 16px; margin-bottom: 16px; background: #fafafa; }
+    .tab-section-title { font-weight: 600; color: #475569; margin-bottom: 12px; display: flex; align-items: center; gap: 8px; }
+    .payment-row { display: flex; gap: 8px; align-items: center; padding: 8px; background: white; border-radius: 8px; margin-bottom: 8px; flex-wrap: wrap; }
+    .payment-row.overdue { background: #fef2f2; border: 1px solid #fecaca; }
+    .payment-row.paid { background: #f0fdf4; opacity: 0.7; }
+  </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-slate-100 min-h-screen">
+  <div id="app">
+    <!-- 설정 모달 -->
+    <div id="setupModal" class="hidden fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+      <div class="bg-white rounded-2xl p-6 max-w-md w-full shadow-xl max-h-[90vh] overflow-y-auto">
+        <h2 class="text-xl font-bold text-slate-800 mb-4">⚙️ 설정</h2>
+        
+        <div class="mb-6">
+          <h3 class="font-semibold text-slate-700 mb-2">🔗 Google Sheets 연결</h3>
+          <p class="text-slate-600 text-sm mb-3">Apps Script 웹 앱 URL을 입력하면 모든 데이터가 자동 동기화됩니다.</p>
+          <input type="text" id="apiUrlInput" placeholder="https://script.google.com/macros/s/..." class="w-full px-4 py-3 bg-slate-50 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm mb-2">
+        </div>
+        
+        <div class="mb-6">
+          <h3 class="font-semibold text-slate-700 mb-2">💱 환율 설정 (1 외화 = N 원)</h3>
+          <p class="text-slate-500 text-xs mb-3">연간 입금 누적액 계산에 사용됩니다.</p>
+          <div class="grid grid-cols-2 gap-2" id="exchangeRatesInputs"></div>
+        </div>
+        
+        <div class="flex gap-3">
+          <button onclick="skipSetup()" class="flex-1 py-3 bg-slate-100 text-slate-600 rounded-xl font-medium hover:bg-slate-200 transition-colors">닫기</button>
+          <button onclick="saveSettings()" class="flex-1 py-3 bg-blue-500 text-white rounded-xl font-medium hover:bg-blue-600 transition-colors">저장</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 로딩 -->
+    <div id="loadingScreen" class="fixed inset-0 bg-white flex items-center justify-center z-40">
+      <div class="text-center">
+        <div class="loader mx-auto mb-4"></div>
+        <p class="text-slate-500">데이터 불러오는 중...</p>
+      </div>
+    </div>
+
+    <!-- 토스트 -->
+    <div id="toastContainer"></div>
+
+    <!-- 메인 컨텐츠 -->
+    <div id="mainContent" class="hidden">
+      <!-- 상단 네비게이션 -->
+      <nav class="bg-white border-b border-slate-200 sticky top-0 z-30">
+        <div class="max-w-6xl mx-auto px-4">
+          <div class="flex items-center justify-between h-16">
+            <div class="flex items-center gap-4">
+              <h1 class="text-xl font-bold text-slate-800">📚 출판 업무 관리</h1>
+              <span id="syncStatus" class="sync-indicator hidden"></span>
+            </div>
+            
+            <div class="flex bg-slate-100 rounded-xl p-1">
+              <button onclick="switchTab('todo')" id="todoTab" class="tab-btn flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-colors bg-white text-slate-800 shadow-sm">📋 투두</button>
+              <button onclick="switchTab('rights')" id="rightsTab" class="tab-btn flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-colors text-slate-600 hover:text-slate-800">🌏 외서 관리</button>
+            </div>
+
+            <button onclick="showSetup()" class="text-slate-400 hover:text-slate-600 text-sm">⚙️ 설정</button>
+          </div>
+        </div>
+      </nav>
+
+      <!-- 투두 섹션 -->
+      <div id="todoSection" class="p-4 md:p-8">
+        <div class="max-w-4xl mx-auto">
+          <div class="flex items-center justify-between mb-6">
+            <div>
+              <h2 class="text-2xl font-bold text-slate-800 mb-1">오늘의 할 일</h2>
+              <p class="text-slate-500 text-sm">하나씩 해결해 나가요</p>
+            </div>
+            <div class="flex bg-white rounded-xl p-1 shadow-sm border border-slate-200">
+              <button onclick="setTodoView('list')" id="todoListBtn" class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors bg-slate-800 text-white">목록</button>
+              <button onclick="setTodoView('calendar')" id="todoCalendarBtn" class="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors text-slate-600 hover:bg-slate-100">캘린더</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-3 gap-3 md:gap-4 mb-6">
+            <div class="bg-white rounded-xl p-3 md:p-4 shadow-sm border border-slate-100">
+              <div id="statRemaining" class="text-xl md:text-2xl font-bold text-slate-800">0</div>
+              <div class="text-xs md:text-sm text-slate-500">남은 할 일</div>
+            </div>
+            <div class="bg-white rounded-xl p-3 md:p-4 shadow-sm border border-slate-100">
+              <div id="statCompleted" class="text-xl md:text-2xl font-bold text-green-600">0</div>
+              <div class="text-xs md:text-sm text-slate-500">완료</div>
+            </div>
+            <div class="bg-white rounded-xl p-3 md:p-4 shadow-sm border border-slate-100">
+              <div id="statOverdue" class="text-xl md:text-2xl font-bold text-red-500">0</div>
+              <div class="text-xs md:text-sm text-slate-500">기한 초과</div>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-2xl p-4 md:p-5 shadow-sm border border-slate-100 mb-6">
+            <div class="flex gap-2 md:gap-3 mb-4">
+              <input type="text" id="newTodoInput" placeholder="새로운 할 일을 입력하세요" class="input-field flex-1" onkeypress="if(event.key === 'Enter') addTodo()">
+              <button onclick="addTodo()" class="btn btn-primary flex items-center gap-2"><span>+</span> <span class="hidden md:inline">추가</span></button>
+            </div>
+            <div class="flex flex-wrap gap-2 md:gap-3">
+              <select id="newCategory" class="input-field w-auto">
+                <option value="manuscript">원고 검토</option>
+                <option value="planning">기획안</option>
+                <option value="foreign">외서 업무</option>
+                <option value="email">메일</option>
+                <option value="other" selected>기타</option>
+              </select>
+              <select id="newPriority" class="input-field w-auto">
+                <option value="high">긴급</option>
+                <option value="medium" selected>보통</option>
+                <option value="low">낮음</option>
+              </select>
+              <input type="date" id="newDueDate" class="input-field w-auto">
+            </div>
+          </div>
+
+          <div id="todoListView">
+            <div class="flex flex-wrap gap-2 mb-4 overflow-x-auto pb-2" id="filterButtons"></div>
+            <div id="todoList" class="space-y-3"></div>
+            <div id="completedSection" class="mt-6 hidden">
+              <button onclick="toggleCompletedList()" class="flex items-center gap-2 w-full py-3 px-4 bg-slate-100 rounded-xl text-sm font-medium text-slate-500 hover:bg-slate-200 transition-colors">
+                <span id="completedArrow" class="transition-transform">▶</span>
+                <span>완료된 항목</span>
+                <span id="completedCount" class="bg-slate-200 text-slate-600 px-2 py-0.5 rounded-full text-xs">0</span>
+              </button>
+              <div id="completedList" class="hidden space-y-3 mt-3"></div>
+            </div>
+          </div>
+
+          <div id="todoCalendarView" class="hidden">
+            <div class="bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div class="flex items-center justify-between p-4 border-b border-slate-100">
+                <button onclick="prevMonth()" class="p-2 hover:bg-slate-100 rounded-lg transition-colors">◀</button>
+                <div class="flex items-center gap-3">
+                  <h3 id="calendarTitle" class="text-lg font-semibold text-slate-800"></h3>
+                  <button onclick="goToToday()" class="px-3 py-1 text-xs font-medium text-blue-600 bg-blue-50 rounded-full hover:bg-blue-100">오늘</button>
+                </div>
+                <button onclick="nextMonth()" class="p-2 hover:bg-slate-100 rounded-lg transition-colors">▶</button>
+              </div>
+              <div class="grid grid-cols-7 border-b border-slate-100">
+                <div class="p-2 text-center text-sm font-medium text-red-500">일</div>
+                <div class="p-2 text-center text-sm font-medium text-slate-500">월</div>
+                <div class="p-2 text-center text-sm font-medium text-slate-500">화</div>
+                <div class="p-2 text-center text-sm font-medium text-slate-500">수</div>
+                <div class="p-2 text-center text-sm font-medium text-slate-500">목</div>
+                <div class="p-2 text-center text-sm font-medium text-slate-500">금</div>
+                <div class="p-2 text-center text-sm font-medium text-blue-500">토</div>
+              </div>
+              <div id="calendarGrid" class="grid grid-cols-7"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- 외서 관리 섹션 -->
+      <div id="rightsSection" class="hidden p-4 md:p-8">
+        <div class="max-w-6xl mx-auto">
+          <div class="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+            <div>
+              <h2 class="text-2xl font-bold text-slate-800 mb-1">외서 수입 관리</h2>
+              <p class="text-slate-500 text-sm">해외 저작권 계약 현황</p>
+            </div>
+            <div class="flex items-center gap-3">
+              <button onclick="showAlertsModal()" id="alertsBtn" class="relative btn btn-secondary">
+                🔔 알림 <span id="alertsBadge" class="hidden absolute -top-1 -right-1 w-5 h-5 bg-red-500 text-white text-xs rounded-full flex items-center justify-center"></span>
+              </button>
+              <button onclick="exportToExcel()" class="btn btn-secondary">📊 엑셀</button>
+              <button onclick="showAddBookModal()" class="btn btn-primary">+ 새 도서</button>
+            </div>
+          </div>
+
+          <div class="bg-white rounded-2xl p-4 shadow-sm border border-slate-100 mb-6">
+            <div class="flex flex-wrap gap-3">
+              <input type="text" id="bookSearch" placeholder="도서명, 저자, 출판사 검색" class="input-field flex-1 min-w-48" oninput="renderBooks()">
+              <select id="stageFilter" class="input-field w-auto" onchange="renderBooks()"><option value="all">전체 단계</option></select>
+              <select id="countryFilter" class="input-field w-auto" onchange="renderBooks()"><option value="all">전체 국가</option></select>
+              <div class="flex bg-slate-100 rounded-lg p-1">
+                <button onclick="setRightsView('table')" id="rightsTableBtn" class="px-4 py-2 rounded-md text-sm font-medium bg-white shadow-sm">테이블</button>
+                <button onclick="setRightsView('kanban')" id="rightsKanbanBtn" class="px-4 py-2 rounded-md text-sm font-medium text-slate-600">칸반</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- 연간 인세 합계 -->
+          <div id="royaltySummary" class="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-2xl p-5 shadow-sm border border-blue-100 mb-6">
+            <div class="flex items-center justify-between mb-4">
+              <h3 class="font-bold text-slate-700">💰 연간 인세 현황</h3>
+              <select id="summaryYear" class="input-field text-sm w-auto" onchange="updateRoyaltySummary()"></select>
+            </div>
+            <div id="royaltySummaryContent" class="grid grid-cols-2 md:grid-cols-4 gap-4"></div>
+          </div>
+
+          <div id="rightsTableView">
+            <!-- PC: 테이블 -->
+            <div class="hidden md:block bg-white rounded-2xl shadow-sm border border-slate-100 overflow-hidden">
+              <div class="overflow-x-auto">
+                <table class="w-full">
+                  <thead class="bg-slate-50 border-b border-slate-200">
+                    <tr>
+                      <th class="text-left p-4 font-semibold text-slate-600 text-sm">도서명</th>
+                      <th class="text-left p-4 font-semibold text-slate-600 text-sm">저자</th>
+                      <th class="text-left p-4 font-semibold text-slate-600 text-sm">국가</th>
+                      <th class="text-left p-4 font-semibold text-slate-600 text-sm">출판사</th>
+                      <th class="text-left p-4 font-semibold text-slate-600 text-sm">에이전시</th>
+                      <th class="text-left p-4 font-semibold text-slate-600 text-sm">진행 단계</th>
+                      <th class="text-left p-4 font-semibold text-slate-600 text-sm">선인세</th>
+                      <th class="text-left p-4 font-semibold text-slate-600 text-sm">입금현황</th>
+                    </tr>
+                  </thead>
+                  <tbody id="booksTableBody"></tbody>
+                </table>
+              </div>
+            </div>
+            <!-- 모바일: 카드 리스트 -->
+            <div id="booksCardList" class="md:hidden space-y-3"></div>
+          </div>
+
+          <div id="rightsKanbanView" class="hidden">
+            <div id="kanbanBoard" class="flex gap-4 overflow-x-auto pb-4"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- 도서 편집 모달 -->
+    <div id="editBookModal" class="hidden modal-overlay" onclick="closeModal('editBookModal')">
+      <div class="modal-content w-full max-w-4xl p-6" onclick="event.stopPropagation()">
+        <div class="flex justify-between items-center mb-6">
+          <h3 class="text-xl font-bold text-slate-800">📖 도서 상세 / 계약 조건</h3>
+          <button onclick="closeModal('editBookModal')" class="text-2xl text-slate-400 hover:text-slate-600">×</button>
+        </div>
+        <div id="editBookContent"></div>
+      </div>
+    </div>
+
+    <!-- 도서 추가 모달 -->
+    <div id="addBookModal" class="hidden modal-overlay" onclick="closeModal('addBookModal')">
+      <div class="modal-content w-full max-w-lg p-6" onclick="event.stopPropagation()">
+        <div class="flex justify-between items-center mb-6">
+          <h3 class="text-xl font-bold text-slate-800">📚 새 도서 등록</h3>
+          <button onclick="closeModal('addBookModal')" class="text-2xl text-slate-400 hover:text-slate-600">×</button>
+        </div>
+        <div id="addBookContent"></div>
+      </div>
+    </div>
+
+    <!-- 알림 모달 -->
+    <div id="alertsModal" class="hidden modal-overlay" onclick="closeModal('alertsModal')">
+      <div class="modal-content w-full max-w-lg p-6" onclick="event.stopPropagation()">
+        <div class="flex justify-between items-center mb-6">
+          <h3 class="text-xl font-bold text-slate-800">🔔 알림</h3>
+          <button onclick="closeModal('alertsModal')" class="text-2xl text-slate-400 hover:text-slate-600">×</button>
+        </div>
+        <div id="alertsContent"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // ==================== 상수 ====================
+    const STAGES = [
+      { id: 1, name: '원고 검토', icon: '📖' },
+      { id: 2, name: '오퍼 접수', icon: '📨' },
+      { id: 3, name: '오퍼 승인', icon: '✅' },
+      { id: 4, name: '계약서 초안', icon: '📝' },
+      { id: 5, name: '계약서 서명', icon: '✍️' },
+      { id: 6, name: '계약 완료', icon: '🤝' },
+      { id: 7, name: '자료 공유', icon: '📤' },
+      { id: 8, name: '도서 발송', icon: '📦' },
+      { id: 9, name: '선인세 입금', icon: '💰' },
+      { id: 10, name: '표지/판권 승인', icon: '🎨' },
+      { id: 11, name: '출간 확인', icon: '🎉' },
+      { id: 12, name: '추가 인세', icon: '💵' },
+      { id: 13, name: '해외판 입수', icon: '📚' },
+      { id: 14, name: '계약 만료', icon: '📋' },
+    ];
+
+    const COUNTRIES = ['일본', '중국', '대만', '태국', '베트남', '인도네시아', '미국', '영국', '프랑스', '독일', '스페인', '이탈리아', '러시아', '폴란드', '터키'];
+    const COUNTRY_FLAGS = { '일본': '🇯🇵', '중국': '🇨🇳', '대만': '🇹🇼', '태국': '🇹🇭', '베트남': '🇻🇳', '인도네시아': '🇮🇩', '미국': '🇺🇸', '영국': '🇬🇧', '프랑스': '🇫🇷', '독일': '🇩🇪', '스페인': '🇪🇸', '이탈리아': '🇮🇹', '러시아': '🇷🇺', '폴란드': '🇵🇱', '터키': '🇹🇷' };
+    const CURRENCIES = ['USD', 'EUR', 'JPY', 'CNY', 'TWD', 'THB', 'VND', 'IDR', 'GBP', 'RUB', 'RMB'];
+
+    // 기본 환율 (1 외화 = N 원) - 설정에서 변경 가능
+    const DEFAULT_EXCHANGE_RATES = {
+      USD: 1450,
+      EUR: 1550,
+      JPY: 9.5,
+      CNY: 200,
+      TWD: 44,
+      THB: 42,
+      VND: 0.058,
+      IDR: 0.089,
+      GBP: 1850,
+      RUB: 15,
+      RMB: 200
+    };
+    
+    function getExchangeRates() {
+      const saved = localStorage.getItem('exchangeRates');
+      return saved ? JSON.parse(saved) : DEFAULT_EXCHANGE_RATES;
+    }
+    
+    function saveExchangeRates(rates) {
+      localStorage.setItem('exchangeRates', JSON.stringify(rates));
+    }
+
+    const DEFAULT_AGENCIES = ['에릭양', '대니홍', '메이', '레나', 'BC', '오렌지', '신원', 'CA-LINK', '유니', '소미미디어', '동주', 'MJ'];
+    
+    function getAgencies() {
+      const saved = localStorage.getItem('agencies');
+      if (saved) {
+        const list = JSON.parse(saved);
+        // 기본 목록과 합치고 중복 제거
+        return [...new Set([...DEFAULT_AGENCIES, ...list])];
+      }
+      return DEFAULT_AGENCIES;
+    }
+    
+    function addAgency(name) {
+      if (!name || name.trim() === '') return;
+      const agencies = getAgencies();
+      if (!agencies.includes(name.trim())) {
+        const saved = JSON.parse(localStorage.getItem('agencies') || '[]');
+        saved.push(name.trim());
+        localStorage.setItem('agencies', JSON.stringify(saved));
+      }
+    }
+
+    // 도서명, 저자명, 출판사명 자동완성
+    function getTitles() {
+      return [...new Set(books.map(b => b.title).filter(t => t))];
+    }
+    
+    function getAuthors() {
+      return [...new Set(books.map(b => b.author).filter(a => a))];
+    }
+    
+    function getPublishers() {
+      return [...new Set(books.map(b => b.publisher).filter(p => p))];
+    }
+
+    const TODO_CATEGORIES = {
+      manuscript: { name: '원고 검토', color: 'bg-blue-500', light: 'bg-blue-100 text-blue-700' },
+      planning: { name: '기획안', color: 'bg-purple-500', light: 'bg-purple-100 text-purple-700' },
+      foreign: { name: '외서 업무', color: 'bg-green-500', light: 'bg-green-100 text-green-700' },
+      email: { name: '메일', color: 'bg-yellow-500', light: 'bg-yellow-100 text-yellow-700' },
+      other: { name: '기타', color: 'bg-gray-500', light: 'bg-gray-100 text-gray-700' }
+    };
+
+    const PRIORITIES = {
+      high: { name: '긴급', color: 'text-red-500', bg: 'bg-red-50' },
+      medium: { name: '보통', color: 'text-orange-500', bg: 'bg-orange-50' },
+      low: { name: '낮음', color: 'text-gray-500', bg: 'bg-gray-50' }
+    };
+
+    // ==================== 상태 ====================
+    let todos = [];
+    let books = [];
+    let currentTab = 'todo';
+    let todoView = 'list';
+    let rightsView = 'table';
+    let currentFilter = 'all';
+    let currentMonth = new Date();
+    let selectedBook = null;
+    let API_URL = '';
+
+    // ==================== 초기화 ====================
+    document.addEventListener('DOMContentLoaded', async () => {
+      API_URL = localStorage.getItem('publishingApiUrl') || '';
+      initFilters();
+      
+      if (API_URL) {
+        await loadAllData();
+      }
+      
+      document.getElementById('loadingScreen').classList.add('hidden');
+      document.getElementById('mainContent').classList.remove('hidden');
+      
+      renderTodos();
+      renderBooks();
+      renderCalendar();
+      updateAlertsBadge();
+    });
+
+    function initFilters() {
+      const filterContainer = document.getElementById('filterButtons');
+      filterContainer.innerHTML = `
+        <button onclick="setFilter('all')" data-filter="all" class="filter-btn px-3 py-2 rounded-full text-sm font-medium bg-slate-800 text-white">전체</button>
+        ${Object.entries(TODO_CATEGORIES).map(([id, cat]) => `
+          <button onclick="setFilter('${id}')" data-filter="${id}" class="filter-btn px-3 py-2 rounded-full text-sm font-medium bg-white text-slate-600 hover:bg-slate-100">${cat.name}</button>
+        `).join('')}
+      `;
+
+      document.getElementById('stageFilter').innerHTML = '<option value="all">전체 단계</option>' + STAGES.map(s => `<option value="${s.id}">${s.icon} ${s.name}</option>`).join('');
+      document.getElementById('countryFilter').innerHTML = '<option value="all">전체 국가</option>' + COUNTRIES.map(c => `<option value="${c}">${COUNTRY_FLAGS[c]} ${c}</option>`).join('');
+    }
+
+    // ==================== API ====================
+    function showSyncStatus(status, message) {
+      const el = document.getElementById('syncStatus');
+      el.classList.remove('hidden');
+      el.innerHTML = status === 'syncing' ? `<span class="loader" style="width:14px;height:14px;border-width:2px;"></span> ${message}` : `${status === 'success' ? '✓' : '⚠'} ${message}`;
+      el.style.color = status === 'syncing' ? '#f59e0b' : status === 'success' ? '#10b981' : '#ef4444';
+      if (status !== 'syncing') setTimeout(() => el.classList.add('hidden'), 2000);
+    }
+
+    async function apiCall(action, sheet, data = null) {
+      if (!API_URL) return null;
+      showSyncStatus('syncing', '동기화 중...');
+      try {
+        let url = `${API_URL}?action=${action}&sheet=${sheet}&t=${Date.now()}`;
+        if (action === 'delete' && data) {
+          url += `&id=${encodeURIComponent(data)}`;
+        } else if (data && (action === 'add' || action === 'update')) {
+          url += `&data=${encodeURIComponent(JSON.stringify(data))}`;
+        }
+        const response = await fetch(url, { redirect: 'follow' });
+        const result = await response.json();
+        if (result.error) throw new Error(result.error);
+        showSyncStatus('success', '동기화 완료');
+        return result;
+      } catch (e) {
+        console.error('API Error:', e);
+        showSyncStatus('error', '동기화 실패');
+        return null;
+      }
+    }
+
+    async function loadAllData() {
+      const result = await apiCall('getAll', '');
+      if (result) {
+        if (result.todos) {
+          todos = result.todos;
+          localStorage.setItem('todos', JSON.stringify(todos));
+        }
+        if (result.books) {
+          books = result.books;
+          localStorage.setItem('rights-books', JSON.stringify(books));
+        }
+      } else {
+        // API 실패 시 localStorage에서 로드
+        todos = JSON.parse(localStorage.getItem('todos') || '[]');
+        books = JSON.parse(localStorage.getItem('rights-books') || '[]');
+      }
+    }
+
+    // ==================== 설정 ====================
+    function showSetup() {
+      document.getElementById('apiUrlInput').value = API_URL;
+      
+      // 환율 입력칸 생성
+      const rates = getExchangeRates();
+      const container = document.getElementById('exchangeRatesInputs');
+      container.innerHTML = CURRENCIES.map(cur => `
+        <div class="flex items-center gap-1">
+          <span class="text-xs font-medium text-slate-600 w-10">${cur}</span>
+          <input type="number" id="rate_${cur}" value="${rates[cur] || 0}" class="input-field text-sm py-1 flex-1" step="0.01">
+        </div>
+      `).join('');
+      
+      document.getElementById('setupModal').classList.remove('hidden');
+    }
+
+    function skipSetup() {
+      document.getElementById('setupModal').classList.add('hidden');
+      document.getElementById('mainContent').classList.remove('hidden');
+    }
+
+    async function saveSettings() {
+      // API URL 저장
+      const url = document.getElementById('apiUrlInput').value.trim();
+      const urlChanged = url !== API_URL;
+      API_URL = url;
+      localStorage.setItem('publishingApiUrl', url);
+      
+      // 환율 저장
+      const rates = {};
+      CURRENCIES.forEach(cur => {
+        const input = document.getElementById('rate_' + cur);
+        if (input) {
+          rates[cur] = parseFloat(input.value) || 0;
+        }
+      });
+      saveExchangeRates(rates);
+      
+      document.getElementById('setupModal').classList.add('hidden');
+      
+      if (urlChanged && url) {
+        document.getElementById('loadingScreen').classList.remove('hidden');
+        
+        // 먼저 서버에서 데이터 가져오기
+        const result = await apiCall('getAll', '');
+        const serverTodos = result?.todos || [];
+        const serverBooks = result?.books || [];
+        
+        // 로컬에만 있는 데이터를 서버로 업로드
+        const localTodos = JSON.parse(localStorage.getItem('todos') || '[]');
+        const localBooks = JSON.parse(localStorage.getItem('rights-books') || '[]');
+        
+        let uploaded = 0;
+        
+        for (const todo of localTodos) {
+          if (!serverTodos.find(t => String(t.id) === String(todo.id))) {
+            await apiCall('add', 'todos', todo);
+            uploaded++;
+          }
+        }
+        
+        for (const book of localBooks) {
+          if (!serverBooks.find(b => String(b.id) === String(book.id))) {
+            await apiCall('add', 'books', book);
+            uploaded++;
+          }
+        }
+        
+        // 서버 + 로컬 병합
+        await loadAllData();
+        renderTodos();
+        renderBooks();
+        updateAlertsBadge();
+        document.getElementById('loadingScreen').classList.add('hidden');
+        
+        if (uploaded > 0) {
+          showToast(`연결 완료! ${uploaded}건 업로드됨`);
+        } else {
+          showToast('연결되었습니다!');
+        }
+      } else {
+        renderBooks();
+      }
+      
+      document.getElementById('mainContent').classList.remove('hidden');
+      if (!urlChanged || !url) showToast('설정이 저장되었습니다!');
+    }
+
+    async function saveApiUrl() {
+      await saveSettings();
+    }
+
+    function showToast(message, type = 'success') {
+      const container = document.getElementById('toastContainer');
+      const toast = document.createElement('div');
+      toast.className = `toast ${type === 'success' ? 'bg-green-500' : 'bg-red-500'}`;
+      toast.textContent = message;
+      container.appendChild(toast);
+      setTimeout(() => toast.remove(), 3000);
+    }
+
+    // ==================== 탭 ====================
+    function switchTab(tab) {
+      currentTab = tab;
+      document.getElementById('todoTab').className = `tab-btn flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'todo' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`;
+      document.getElementById('rightsTab').className = `tab-btn flex items-center gap-2 px-5 py-2 rounded-lg text-sm font-medium transition-colors ${tab === 'rights' ? 'bg-white text-slate-800 shadow-sm' : 'text-slate-600 hover:text-slate-800'}`;
+      document.getElementById('todoSection').classList.toggle('hidden', tab !== 'todo');
+      document.getElementById('rightsSection').classList.toggle('hidden', tab !== 'rights');
+    }
+
+    // ==================== 투두 ====================
+    function setTodoView(view) {
+      todoView = view;
+      document.getElementById('todoListBtn').className = `flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'list' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`;
+      document.getElementById('todoCalendarBtn').className = `flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${view === 'calendar' ? 'bg-slate-800 text-white' : 'text-slate-600 hover:bg-slate-100'}`;
+      document.getElementById('todoListView').classList.toggle('hidden', view !== 'list');
+      document.getElementById('todoCalendarView').classList.toggle('hidden', view !== 'calendar');
+      if (view === 'calendar') renderCalendar();
+    }
+
+    function setFilter(filter) {
+      currentFilter = filter;
+      document.querySelectorAll('.filter-btn').forEach(btn => {
+        btn.className = `filter-btn px-3 py-2 rounded-full text-sm font-medium ${btn.dataset.filter === filter ? 'bg-slate-800 text-white' : 'bg-white text-slate-600 hover:bg-slate-100'}`;
+      });
+      renderTodos();
+    }
+
+    async function addTodo() {
+      const text = document.getElementById('newTodoInput').value.trim();
+      if (!text) return;
+      const todo = {
+        id: Date.now().toString(),
+        text,
+        category: document.getElementById('newCategory').value,
+        priority: document.getElementById('newPriority').value,
+        dueDate: document.getElementById('newDueDate').value,
+        completed: false,
+        createdAt: new Date().toISOString(),
+        completedAt: '',
+        order: todos.length > 0 ? Math.min(...todos.map(t => t.order || 0)) - 1 : 0
+      };
+      todos.unshift(todo);
+      document.getElementById('newTodoInput').value = '';
+      document.getElementById('newDueDate').value = '';
+      localStorage.setItem('todos', JSON.stringify(todos));
+      renderTodos();
+      renderCalendar();
+      await apiCall('add', 'todos', todo);
+    }
+
+    async function toggleTodo(id) {
+      const todo = todos.find(t => t.id === id);
+      if (todo) {
+        todo.completed = !todo.completed;
+        todo.completedAt = todo.completed ? new Date().toISOString() : '';
+        localStorage.setItem('todos', JSON.stringify(todos));
+        renderTodos();
+        renderCalendar();
+        await apiCall('update', 'todos', todo);
+      }
+    }
+
+    async function deleteTodo(id) {
+      if (!confirm('삭제하시겠습니까?')) return;
+      todos = todos.filter(t => t.id !== id);
+      localStorage.setItem('todos', JSON.stringify(todos));
+      renderTodos();
+      renderCalendar();
+      await apiCall('delete', 'todos', id);
+    }
+
+    let editingTodoId = null;
+
+    function startEditTodo(id) {
+      editingTodoId = id;
+      renderTodos();
+    }
+
+    function cancelEditTodo() {
+      editingTodoId = null;
+      renderTodos();
+    }
+
+    async function saveTodoEdit(id) {
+      const todo = todos.find(t => t.id === id);
+      if (!todo) return;
+      
+      const newText = document.getElementById('editTodoText_' + id).value.trim();
+      if (!newText) return;
+      
+      todo.text = newText;
+      todo.category = document.getElementById('editTodoCat_' + id).value;
+      todo.priority = document.getElementById('editTodoPri_' + id).value;
+      todo.dueDate = document.getElementById('editTodoDate_' + id).value;
+      
+      editingTodoId = null;
+      localStorage.setItem('todos', JSON.stringify(todos));
+      renderTodos();
+      renderCalendar();
+      await apiCall('update', 'todos', todo);
+      showToast('수정되었습니다!');
+    }
+
+    async function moveTodo(id, direction) {
+      let filtered = todos.filter(todo => currentFilter === 'all' || todo.category === currentFilter)
+        .filter(todo => !todo.completed);
+      
+      const idx = filtered.findIndex(t => t.id === id);
+      if (idx < 0) return;
+      if (direction === 'up' && idx === 0) return;
+      if (direction === 'down' && idx === filtered.length - 1) return;
+      
+      const swapIdx = direction === 'up' ? idx - 1 : idx + 1;
+      const swapTodo = filtered[swapIdx];
+      
+      // todos 배열에서의 실제 인덱스 찾기
+      const realIdx = todos.findIndex(t => t.id === id);
+      const realSwapIdx = todos.findIndex(t => t.id === swapTodo.id);
+      
+      // 위치 교환
+      [todos[realIdx], todos[realSwapIdx]] = [todos[realSwapIdx], todos[realIdx]];
+      
+      localStorage.setItem('todos', JSON.stringify(todos));
+      renderTodos();
+      renderCalendar();
+    }
+
+    function normalizeDate(d) {
+      if (!d) return '';
+      try {
+        const date = new Date(d);
+        if (isNaN(date)) return '';
+        return date.toISOString().split('T')[0];
+      } catch(e) { return ''; }
+    }
+
+    function isOverdue(dueDate, completed) {
+      if (!dueDate || completed) return false;
+      return new Date(dueDate) < new Date(new Date().toDateString());
+    }
+
+    let completedListOpen = false;
+
+    function toggleCompletedList() {
+      completedListOpen = !completedListOpen;
+      document.getElementById('completedList').classList.toggle('hidden', !completedListOpen);
+      document.getElementById('completedArrow').style.transform = completedListOpen ? 'rotate(90deg)' : '';
+    }
+
+    function renderTodos() {
+      let filtered = todos.filter(todo => currentFilter === 'all' || todo.category === currentFilter);
+      
+      const activeTodos = filtered.filter(t => !t.completed);
+      const completedTodos = filtered.filter(t => t.completed);
+
+      const completed = todos.filter(t => t.completed).length;
+      const overdue = todos.filter(t => !t.completed && isOverdue(t.dueDate, false)).length;
+      document.getElementById('statRemaining').textContent = todos.length - completed;
+      document.getElementById('statCompleted').textContent = completed;
+      document.getElementById('statOverdue').textContent = overdue;
+
+      // 미완료 목록
+      const container = document.getElementById('todoList');
+      if (activeTodos.length === 0) {
+        container.innerHTML = '<div class="bg-white rounded-2xl p-8 text-center text-slate-400">할 일이 없습니다 ✨</div>';
+      } else {
+        container.innerHTML = activeTodos.map((todo, idx) => renderTodoItem(todo, idx, activeTodos.length)).join('');
+      }
+
+      // 완료 섹션
+      const completedSection = document.getElementById('completedSection');
+      const completedList = document.getElementById('completedList');
+      const completedCount = document.getElementById('completedCount');
+      
+      if (completedTodos.length > 0) {
+        completedSection.classList.remove('hidden');
+        completedCount.textContent = completedTodos.length;
+        completedList.innerHTML = completedTodos.map((todo, idx) => renderTodoItem(todo, idx, completedTodos.length, true)).join('');
+      } else {
+        completedSection.classList.add('hidden');
+      }
+    }
+
+    function renderTodoItem(todo, idx, total, isCompleted = false) {
+      const cat = TODO_CATEGORIES[todo.category] || TODO_CATEGORIES.other;
+      const pri = PRIORITIES[todo.priority] || PRIORITIES.medium;
+      const overdue = isOverdue(todo.dueDate, todo.completed);
+      const isEditing = editingTodoId === todo.id;
+      
+      if (isEditing) {
+        return `
+          <div class="bg-white rounded-xl p-4 shadow-sm border-2 border-blue-300">
+            <div class="space-y-3">
+              <input type="text" id="editTodoText_${todo.id}" value="${todo.text.replace(/"/g, '&quot;')}" class="input-field w-full font-medium" autofocus>
+              <div class="flex flex-wrap gap-2">
+                <select id="editTodoCat_${todo.id}" class="input-field w-auto text-sm">
+                  ${Object.entries(TODO_CATEGORIES).map(([id, c]) => `<option value="${id}" ${todo.category === id ? 'selected' : ''}>${c.name}</option>`).join('')}
+                </select>
+                <select id="editTodoPri_${todo.id}" class="input-field w-auto text-sm">
+                  <option value="high" ${todo.priority === 'high' ? 'selected' : ''}>긴급</option>
+                  <option value="medium" ${todo.priority === 'medium' ? 'selected' : ''}>보통</option>
+                  <option value="low" ${todo.priority === 'low' ? 'selected' : ''}>낮음</option>
+                </select>
+                <input type="date" id="editTodoDate_${todo.id}" value="${todo.dueDate || ''}" class="input-field w-auto text-sm">
+              </div>
+              <div class="flex justify-end gap-2">
+                <button onclick="cancelEditTodo()" class="px-4 py-2 text-sm text-slate-600 bg-slate-100 rounded-lg hover:bg-slate-200">취소</button>
+                <button onclick="saveTodoEdit('${todo.id}')" class="px-4 py-2 text-sm text-white bg-blue-500 rounded-lg hover:bg-blue-600">저장</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      
+      return `
+        <div class="bg-white rounded-xl p-4 shadow-sm border transition-all ${todo.completed ? 'opacity-60 border-slate-100' : overdue ? 'border-red-200 bg-red-50/30' : 'border-slate-100 hover:shadow-md'}">
+          <div class="flex items-start gap-3">
+            ${!isCompleted ? `<div class="flex flex-col gap-1 flex-shrink-0 mt-1">
+              <button onclick="moveTodo('${todo.id}', 'up')" class="w-6 h-5 flex items-center justify-center text-slate-300 hover:text-slate-600 rounded ${idx === 0 ? 'invisible' : ''}" title="위로">▲</button>
+              <button onclick="moveTodo('${todo.id}', 'down')" class="w-6 h-5 flex items-center justify-center text-slate-300 hover:text-slate-600 rounded ${idx === total - 1 ? 'invisible' : ''}" title="아래로">▼</button>
+            </div>` : ''}
+            <button onclick="toggleTodo('${todo.id}')" class="mt-1 w-6 h-6 rounded-full border-2 flex items-center justify-center transition-colors flex-shrink-0 ${todo.completed ? 'bg-green-500 border-green-500 text-white' : 'border-slate-300 hover:border-green-500'}">${todo.completed ? '✓' : ''}</button>
+            <div class="flex-1 min-w-0">
+              <p class="text-slate-800 font-medium ${todo.completed ? 'line-through text-slate-400' : ''}">${todo.text}</p>
+              <div class="flex flex-wrap items-center gap-2 mt-2">
+                <span class="px-2 py-1 rounded-md text-xs font-medium text-white ${cat.color}">${cat.name}</span>
+                <span class="px-2 py-1 rounded-md text-xs font-medium ${pri.color} ${pri.bg}">${pri.name}</span>
+                ${todo.dueDate ? `<span class="px-2 py-1 rounded-md text-xs ${overdue ? 'text-red-600 bg-red-100 font-medium' : 'text-slate-500 bg-slate-100'}">${new Date(todo.dueDate).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })}${overdue ? ' (기한 초과)' : ''}</span>` : ''}
+                ${todo.completed && todo.completedAt ? `<span class="px-2 py-1 rounded-md text-xs text-green-600 bg-green-50">${new Date(todo.completedAt).toLocaleDateString('ko-KR', { month: 'short', day: 'numeric' })} 완료</span>` : ''}
+              </div>
+            </div>
+            <div class="flex flex-col gap-1 flex-shrink-0">
+              <button onclick="startEditTodo('${todo.id}')" class="p-2 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded-lg" title="수정">✏️</button>
+              <button onclick="deleteTodo('${todo.id}')" class="p-2 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded-lg" title="삭제">🗑</button>
+            </div>
+          </div>
+        </div>
+      `;
+    }
+
+    // ==================== 캘린더 ====================
+    function renderCalendar() {
+      const year = currentMonth.getFullYear();
+      const month = currentMonth.getMonth();
+      document.getElementById('calendarTitle').textContent = currentMonth.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long' });
+
+      const firstDay = new Date(year, month, 1);
+      const lastDay = new Date(year, month + 1, 0);
+      const days = [];
+      const prevMonthDate = new Date(year, month, 0);
+      for (let i = firstDay.getDay() - 1; i >= 0; i--) days.push({ date: new Date(year, month - 1, prevMonthDate.getDate() - i), isCurrentMonth: false });
+      for (let i = 1; i <= lastDay.getDate(); i++) days.push({ date: new Date(year, month, i), isCurrentMonth: true });
+      const remaining = 42 - days.length;
+      for (let i = 1; i <= remaining; i++) days.push({ date: new Date(year, month + 1, i), isCurrentMonth: false });
+
+      const today = new Date();
+      document.getElementById('calendarGrid').innerHTML = days.map(day => {
+        const dateStr = day.date.toISOString().split('T')[0];
+        const dayTodos = todos.filter(t => normalizeDate(t.dueDate) === dateStr);
+        const isToday = day.date.toDateString() === today.toDateString();
+        const dow = day.date.getDay();
+        return `
+          <div class="min-h-24 p-1 md:p-2 border-b border-r border-slate-100 ${!day.isCurrentMonth ? 'bg-slate-50' : ''} ${isToday ? 'bg-blue-50' : ''}">
+            <div class="text-sm font-medium mb-1 ${!day.isCurrentMonth ? 'text-slate-300' : isToday ? 'text-blue-600' : dow === 0 ? 'text-red-500' : dow === 6 ? 'text-blue-500' : 'text-slate-700'}">${day.date.getDate()}${isToday ? ' <span class="text-xs">(오늘)</span>' : ''}</div>
+            <div class="space-y-1">
+              ${dayTodos.slice(0, 3).map(todo => {
+                const cat = TODO_CATEGORIES[todo.category] || TODO_CATEGORIES.other;
+                return `<div onclick="toggleTodo('${todo.id}')" class="text-xs p-1 rounded truncate cursor-pointer ${todo.completed ? 'line-through opacity-50 bg-slate-100' : cat.light}" title="${todo.text}">${todo.text}</div>`;
+              }).join('')}
+              ${dayTodos.length > 3 ? `<div class="text-xs text-slate-400 pl-1">+${dayTodos.length - 3}개</div>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function prevMonth() { currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() - 1); renderCalendar(); }
+    function nextMonth() { currentMonth = new Date(currentMonth.getFullYear(), currentMonth.getMonth() + 1); renderCalendar(); }
+    function goToToday() { currentMonth = new Date(); renderCalendar(); }
+
+    // ==================== 외서 관리 ====================
+    function setRightsView(view) {
+      rightsView = view;
+      document.getElementById('rightsTableBtn').className = `px-4 py-2 rounded-md text-sm font-medium ${view === 'table' ? 'bg-white shadow-sm' : 'text-slate-600'}`;
+      document.getElementById('rightsKanbanBtn').className = `px-4 py-2 rounded-md text-sm font-medium ${view === 'kanban' ? 'bg-white shadow-sm' : 'text-slate-600'}`;
+      document.getElementById('rightsTableView').classList.toggle('hidden', view !== 'table');
+      document.getElementById('rightsKanbanView').classList.toggle('hidden', view !== 'kanban');
+      renderBooks();
+    }
+
+    function getStageColor(stageId) {
+      if (stageId <= 3) return '#f59e0b';
+      if (stageId <= 6) return '#3b82f6';
+      if (stageId <= 9) return '#8b5cf6';
+      if (stageId <= 12) return '#10b981';
+      return '#6b7280';
+    }
+
+    function getPaymentStatus(book) {
+      const payments = book.payments || [];
+      if (payments.length === 0) return { text: '-', class: '' };
+      const paid = payments.filter(p => p.paid).length;
+      const overdue = payments.filter(p => !p.paid && isPaymentOverdue(p.dueDate)).length;
+      if (overdue > 0) return { text: `⚠️ ${overdue}건 연체`, class: 'text-red-600 font-medium' };
+      return { text: `${paid}/${payments.length} 완료`, class: paid === payments.length ? 'text-green-600' : 'text-slate-600' };
+    }
+
+    function isPaymentOverdue(dueDate) {
+      if (!dueDate) return false;
+      const due = new Date(dueDate);
+      const today = new Date();
+      const diffDays = Math.floor((today - due) / (1000 * 60 * 60 * 24));
+      return diffDays > 7;
+    }
+
+    function renderBooks() {
+      const search = document.getElementById('bookSearch').value.toLowerCase();
+      const stageFilter = document.getElementById('stageFilter').value;
+      const countryFilter = document.getElementById('countryFilter').value;
+
+      const filtered = books.filter(book => {
+        const matchesSearch = book.title.toLowerCase().includes(search) || book.author.toLowerCase().includes(search) || (book.publisher || '').toLowerCase().includes(search);
+        const matchesStage = stageFilter === 'all' || book.stage === parseInt(stageFilter);
+        const matchesCountry = countryFilter === 'all' || book.country === countryFilter;
+        return matchesSearch && matchesStage && matchesCountry;
+      });
+
+      if (rightsView === 'table') renderBooksTable(filtered);
+      else renderBooksKanban(filtered);
+      
+      updateRoyaltySummary();
+    }
+
+    function initRoyaltySummaryYears() {
+      const years = new Set();
+      const currentYear = new Date().getFullYear();
+      years.add(currentYear);
+      
+      books.forEach(book => {
+        (book.payments || []).forEach(p => {
+          if (p.paidDate) {
+            years.add(new Date(p.paidDate).getFullYear());
+          }
+          if (p.dueDate) {
+            years.add(new Date(p.dueDate).getFullYear());
+          }
+        });
+      });
+      
+      const select = document.getElementById('summaryYear');
+      if (select) {
+        const sortedYears = Array.from(years).sort((a, b) => b - a);
+        select.innerHTML = sortedYears.map(y => `<option value="${y}">${y}년</option>`).join('');
+      }
+    }
+
+    function updateRoyaltySummary() {
+      initRoyaltySummaryYears();
+      
+      const selectedYear = parseInt(document.getElementById('summaryYear')?.value) || new Date().getFullYear();
+      const content = document.getElementById('royaltySummaryContent');
+      if (!content) return;
+      
+      // 통화별 입금 합계 계산
+      const paidByCurrency = {};
+      const pendingByCurrency = {};
+      const bookSummaries = [];
+      
+      books.forEach(book => {
+        const currency = book.currency || 'USD';
+        let bookPaid = 0;
+        let bookPending = 0;
+        
+        (book.payments || []).forEach(p => {
+          const amount = p.amount || 0;
+          
+          if (p.paid && p.paidDate) {
+            const paidYear = new Date(p.paidDate).getFullYear();
+            if (paidYear === selectedYear) {
+              paidByCurrency[currency] = (paidByCurrency[currency] || 0) + amount;
+              bookPaid += amount;
+            }
+          } else if (p.dueDate) {
+            const dueYear = new Date(p.dueDate).getFullYear();
+            if (dueYear === selectedYear) {
+              pendingByCurrency[currency] = (pendingByCurrency[currency] || 0) + amount;
+              bookPending += amount;
+            }
+          }
+        });
+        
+        if (bookPaid > 0 || bookPending > 0) {
+          bookSummaries.push({ title: book.title, country: book.country, currency, paid: bookPaid, pending: bookPending });
+        }
+      });
+      
+      // 총액 표시
+      const allCurrencies = [...new Set([...Object.keys(paidByCurrency), ...Object.keys(pendingByCurrency)])];
+      
+      let html = `
+        <div class="bg-white rounded-xl p-4 border border-green-200">
+          <div class="text-xs text-slate-500 mb-1">💵 입금 완료</div>
+          <div class="font-bold text-green-600">
+            ${Object.keys(paidByCurrency).length === 0 ? '-' : 
+              Object.entries(paidByCurrency).map(([cur, amt]) => `${amt.toLocaleString()} ${cur}`).join('<br>')}
+          </div>
+        </div>
+        <div class="bg-white rounded-xl p-4 border border-yellow-200">
+          <div class="text-xs text-slate-500 mb-1">⏳ 입금 예정</div>
+          <div class="font-bold text-yellow-600">
+            ${Object.keys(pendingByCurrency).length === 0 ? '-' : 
+              Object.entries(pendingByCurrency).map(([cur, amt]) => `${amt.toLocaleString()} ${cur}`).join('<br>')}
+          </div>
+        </div>
+        <div class="bg-white rounded-xl p-4 border border-blue-200 col-span-2">
+          <div class="text-xs text-slate-500 mb-2">📚 도서별 현황</div>
+          <div class="max-h-32 overflow-y-auto">
+            ${bookSummaries.length === 0 ? '<div class="text-slate-400 text-sm">데이터 없음</div>' :
+              bookSummaries.map(b => `
+                <div class="flex justify-between text-sm py-1 border-b border-slate-100">
+                  <span class="text-slate-700">${COUNTRY_FLAGS[b.country] || ''} ${b.title}</span>
+                  <span class="${b.paid > 0 ? 'text-green-600' : 'text-yellow-600'}">${(b.paid || b.pending).toLocaleString()} ${b.currency}</span>
+                </div>
+              `).join('')}
+          </div>
+        </div>
+      `;
+      
+      content.innerHTML = html;
+    }
+
+    function renderBooksTable(filtered) {
+      // PC용 테이블
+      const tbody = document.getElementById('booksTableBody');
+      if (filtered.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="8" class="p-8 text-center text-slate-400">등록된 도서가 없습니다</td></tr>';
+      } else {
+        tbody.innerHTML = filtered.map(book => {
+          const stage = STAGES.find(s => s.id === book.stage);
+          const paymentStatus = getPaymentStatus(book);
+          const agency = book.contract?.agency || '-';
+          return `
+            <tr class="border-b border-slate-100 hover:bg-slate-50 cursor-pointer" onclick="showEditBookModal('${book.id}')">
+              <td class="p-4 font-medium text-slate-800">${book.title}</td>
+              <td class="p-4 text-slate-600">${book.author}</td>
+              <td class="p-4">${COUNTRY_FLAGS[book.country] || ''} ${book.country}</td>
+              <td class="p-4 text-slate-600">${book.publisher || '-'}</td>
+              <td class="p-4 text-slate-600">${agency}</td>
+              <td class="p-4"><span class="stage-badge" style="background: ${getStageColor(book.stage)}20; color: ${getStageColor(book.stage)}">${stage?.icon} ${stage?.name}</span></td>
+              <td class="p-4 text-slate-600">${book.advance ? `${Number(book.advance).toLocaleString()} ${book.currency || 'USD'}` : '-'}</td>
+              <td class="p-4 ${paymentStatus.class}">${paymentStatus.text}</td>
+            </tr>
+          `;
+        }).join('');
+      }
+      
+      // 모바일용 카드 리스트
+      const cardList = document.getElementById('booksCardList');
+      if (filtered.length === 0) {
+        cardList.innerHTML = '<div class="p-8 text-center text-slate-400 bg-white rounded-2xl">등록된 도서가 없습니다</div>';
+      } else {
+        cardList.innerHTML = filtered.map(book => {
+          const stage = STAGES.find(s => s.id === book.stage);
+          const paymentStatus = getPaymentStatus(book);
+          const agency = book.contract?.agency || '';
+          return `
+            <div class="bg-white rounded-xl p-4 shadow-sm border border-slate-100 cursor-pointer active:bg-slate-50" onclick="showEditBookModal('${book.id}')">
+              <div class="flex justify-between items-start mb-2">
+                <div class="font-semibold text-slate-800 flex-1 pr-2">${book.title}</div>
+                <span class="stage-badge text-xs whitespace-nowrap" style="background: ${getStageColor(book.stage)}20; color: ${getStageColor(book.stage)}">${stage?.icon} ${stage?.name}</span>
+              </div>
+              <div class="text-sm text-slate-600 mb-2">${book.author}</div>
+              <div class="flex flex-wrap gap-2 text-xs">
+                <span class="bg-slate-100 px-2 py-1 rounded">${COUNTRY_FLAGS[book.country] || ''} ${book.country}</span>
+                ${book.publisher ? `<span class="bg-slate-100 px-2 py-1 rounded">${book.publisher}</span>` : ''}
+                ${agency ? `<span class="bg-purple-50 text-purple-700 px-2 py-1 rounded">${agency}</span>` : ''}
+                ${book.advance ? `<span class="bg-blue-50 text-blue-700 px-2 py-1 rounded">${Number(book.advance).toLocaleString()} ${book.currency || 'USD'}</span>` : ''}
+                ${paymentStatus.text !== '-' ? `<span class="px-2 py-1 rounded ${paymentStatus.class === 'text-green-600' ? 'bg-green-50 text-green-700' : paymentStatus.class === 'text-red-600' ? 'bg-red-50 text-red-700' : 'bg-slate-100'}">${paymentStatus.text}</span>` : ''}
+              </div>
+            </div>
+          `;
+        }).join('');
+      }
+    }
+
+    function renderBooksKanban(filtered) {
+      const groups = [
+        { name: '협상 중', stages: [1, 2, 3] },
+        { name: '계약 진행', stages: [4, 5, 6] },
+        { name: '제작 중', stages: [7, 8, 9, 10] },
+        { name: '출간 완료', stages: [11, 12, 13, 14] }
+      ];
+      document.getElementById('kanbanBoard').innerHTML = groups.map(group => `
+        <div class="flex-shrink-0 w-72 bg-slate-100 rounded-xl p-4">
+          <h4 class="font-semibold text-slate-700 mb-4">${group.name} (${filtered.filter(b => group.stages.includes(b.stage)).length})</h4>
+          <div class="space-y-3">
+            ${filtered.filter(b => group.stages.includes(b.stage)).map(book => {
+              const stage = STAGES.find(s => s.id === book.stage);
+              return `
+                <div class="kanban-card" onclick="showEditBookModal('${book.id}')">
+                  <div class="font-medium text-slate-800 mb-2">${book.title}</div>
+                  <div class="text-sm text-slate-500 mb-2">${book.author}</div>
+                  <div class="flex items-center justify-between">
+                    <span class="text-xs">${COUNTRY_FLAGS[book.country]} ${book.country}</span>
+                    <span class="stage-badge text-xs" style="background: ${getStageColor(book.stage)}20; color: ${getStageColor(book.stage)}">${stage?.icon} ${stage?.name}</span>
+                  </div>
+                </div>
+              `;
+            }).join('')}
+          </div>
+        </div>
+      `).join('');
+    }
+
+    function showEditBookModal(id) {
+      selectedBook = books.find(b => b.id.toString() === id.toString());
+      if (!selectedBook) return;
+      
+      if (!selectedBook.payments) selectedBook.payments = [];
+      if (!selectedBook.contract) selectedBook.contract = {};
+
+      const c = selectedBook.contract;
+
+      document.getElementById('editBookContent').innerHTML = `
+        <div class="space-y-4 max-h-[70vh] overflow-y-auto pr-2">
+          <!-- 기본 정보 -->
+          <div class="tab-section">
+            <div class="tab-section-title">📚 기본 정보</div>
+            <div class="grid grid-cols-2 gap-4">
+              <div>
+                <label class="block text-sm font-medium text-slate-600 mb-1">도서명</label>
+                <input type="text" id="editTitle" list="titleListEdit" value="${selectedBook.title}" class="input-field">
+                <datalist id="titleListEdit">
+                  ${getTitles().map(t => `<option value="${t}">`).join('')}
+                </datalist>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-600 mb-1">저자</label>
+                <input type="text" id="editAuthor" list="authorListEdit" value="${selectedBook.author}" class="input-field">
+                <datalist id="authorListEdit">
+                  ${getAuthors().map(a => `<option value="${a}">`).join('')}
+                </datalist>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-600 mb-1">국가</label>
+                <select id="editCountry" class="input-field">
+                  ${COUNTRIES.map(co => `<option value="${co}" ${selectedBook.country === co ? 'selected' : ''}>${COUNTRY_FLAGS[co]} ${co}</option>`).join('')}
+                </select>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-600 mb-1">출판사</label>
+                <input type="text" id="editPublisher" list="publisherListEdit" value="${selectedBook.publisher || ''}" class="input-field">
+                <datalist id="publisherListEdit">
+                  ${getPublishers().map(p => `<option value="${p}">`).join('')}
+                </datalist>
+              </div>
+              <div>
+                <label class="block text-sm font-medium text-slate-600 mb-1">중개 에이전시</label>
+                <input type="text" id="editAgency" list="agencyList" value="${c.agency || ''}" class="input-field" placeholder="첫 글자 입력 시 자동완성">
+                <datalist id="agencyList">
+                  ${getAgencies().map(a => `<option value="${a}">`).join('')}
+                </datalist>
+              </div>
+            </div>
+          </div>
+
+          <!-- 진행 단계 -->
+          <div class="tab-section">
+            <div class="tab-section-title">📋 진행 단계</div>
+            <div class="flex flex-wrap gap-2" id="editStageButtons">
+              ${STAGES.map(s => `
+                <button type="button" onclick="selectStage(${s.id})" data-stage="${s.id}" class="stage-select-btn px-2 py-1 rounded-lg text-xs border-2 transition-colors ${selectedBook.stage === s.id ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 hover:border-slate-300'}">${s.icon} ${s.name}</button>
+              `).join('')}
+            </div>
+          </div>
+
+          <!-- 계약 조건 -->
+          <div class="tab-section">
+            <div class="tab-section-title">📝 계약 조건</div>
+            <div class="grid grid-cols-3 gap-3 mb-4">
+              <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">계약일</label>
+                <input type="date" id="editContractDate" value="${selectedBook.contractDate || ''}" class="input-field text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">계약 만료일</label>
+                <input type="date" id="editExpiryDate" value="${selectedBook.expiryDate || ''}" class="input-field text-sm">
+              </div>
+              <div>
+                <label class="block text-xs font-medium text-slate-600 mb-1">계약 기간 (년)</label>
+                <input type="number" id="editContractYears" value="${c.years || ''}" class="input-field text-sm" placeholder="예: 5">
+              </div>
+            </div>
+            
+            <div class="border-t border-slate-200 pt-4 mb-4">
+              <div class="text-xs font-semibold text-slate-500 mb-2">💰 선인세</div>
+              <div class="grid grid-cols-6 gap-3 mb-2">
+                <div class="col-span-2">
+                  <label class="block text-xs font-medium text-slate-600 mb-1">종이책</label>
+                  <input type="number" id="editAdvance" value="${selectedBook.advance || ''}" class="input-field text-sm">
+                </div>
+                <div class="col-span-2">
+                  <label class="block text-xs font-medium text-slate-600 mb-1">전자책</label>
+                  <input type="number" id="editAdvanceEbook" value="${c.advanceEbook || ''}" class="input-field text-sm">
+                </div>
+                <div class="col-span-2">
+                  <label class="block text-xs font-medium text-slate-600 mb-1">오디오북</label>
+                  <input type="number" id="editAdvanceAudio" value="${c.advanceAudio || ''}" class="input-field text-sm">
+                </div>
+              </div>
+              <div class="grid grid-cols-6 gap-3">
+                <div class="col-span-2">
+                  <label class="block text-xs font-medium text-slate-600 mb-1">기타</label>
+                  <input type="number" id="editAdvanceOther" value="${c.advanceOther || ''}" class="input-field text-sm">
+                </div>
+                <div class="col-span-2">
+                  <label class="block text-xs font-medium text-slate-600 mb-1">통화</label>
+                  <select id="editCurrency" class="input-field text-sm">
+                    ${CURRENCIES.map(cur => `<option value="${cur}" ${selectedBook.currency === cur ? 'selected' : ''}>${cur}</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="border-t border-slate-200 pt-4 mb-4">
+              <div class="text-xs font-semibold text-slate-500 mb-2">📁 데이터 비용</div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">데이터 비용</label>
+                  <input type="number" id="editDataFee" value="${c.dataFee || ''}" class="input-field text-sm">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">통화</label>
+                  <select id="editDataCurrency" class="input-field text-sm">
+                    ${CURRENCIES.map(cur => `<option value="${cur}" ${c.dataCurrency === cur ? 'selected' : ''}>${cur}</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+            </div>
+
+            <div class="border-t border-slate-200 pt-4 mb-4">
+              <div class="text-xs font-semibold text-slate-500 mb-2">📊 인세율 (%)</div>
+              <div class="grid grid-cols-4 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">종이책</label>
+                  <input type="number" id="editRoyaltyRate" value="${c.royaltyRate || ''}" class="input-field text-sm" step="0.1" placeholder="예: 8">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">전자책</label>
+                  <input type="text" id="editEbookRate" value="${c.ebookRate || ''}" class="input-field text-sm" placeholder="예: 25">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">오디오북</label>
+                  <input type="text" id="editAudioRate" value="${c.audioRate || ''}" class="input-field text-sm" placeholder="예: 25">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">기타</label>
+                  <input type="text" id="editOtherRate" value="${c.otherRate || ''}" class="input-field text-sm">
+                </div>
+              </div>
+            </div>
+
+            <div class="border-t border-slate-200 pt-4">
+              <div class="text-xs font-semibold text-slate-500 mb-2">📋 기타 조건</div>
+              <div class="grid grid-cols-3 gap-3">
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">초판 부수</label>
+                  <input type="number" id="editFirstPrint" value="${c.firstPrint || ''}" class="input-field text-sm">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">현지 판매가</label>
+                  <input type="text" id="editLocalPrice" value="${c.localPrice || ''}" class="input-field text-sm" placeholder="예: 450NTD">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">출간 기한 (개월)</label>
+                  <input type="number" id="editPublishDeadline" value="${c.publishDeadline || ''}" class="input-field text-sm" placeholder="예: 18">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">에이전시 수수료 (%)</label>
+                  <input type="number" id="editAgencyFee" value="${c.agencyFee || ''}" class="input-field text-sm" step="0.1" placeholder="예: 10">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">증정 부수</label>
+                  <input type="number" id="editFreeCopies" value="${c.freeCopies || ''}" class="input-field text-sm">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">원천징수 (%)</label>
+                  <input type="number" id="editWithholding" value="${c.withholding || ''}" class="input-field text-sm" step="0.1" placeholder="예: 20">
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">종이책 인세보고 (매년)</label>
+                  <select id="editPrintRoyaltyMonth" class="input-field text-sm">
+                    <option value="">선택</option>
+                    ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => `<option value="${m}" ${c.printRoyaltyMonth == m ? 'selected' : ''}>${m}월</option>`).join('')}
+                  </select>
+                </div>
+                <div>
+                  <label class="block text-xs font-medium text-slate-600 mb-1">전자책 인세보고 (매년)</label>
+                  <select id="editEbookRoyaltyMonth" class="input-field text-sm">
+                    <option value="">선택</option>
+                    ${[1,2,3,4,5,6,7,8,9,10,11,12].map(m => `<option value="${m}" ${c.ebookRoyaltyMonth == m ? 'selected' : ''}>${m}월</option>`).join('')}
+                  </select>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- 입금 스케줄 -->
+          <div class="tab-section">
+            <div class="tab-section-title">💰 입금 스케줄 <button onclick="addPayment()" class="btn btn-sm btn-secondary ml-auto">+ 추가</button></div>
+            <div id="paymentsContainer">
+              ${selectedBook.payments.length === 0 ? '<p class="text-sm text-slate-400">등록된 입금 스케줄이 없습니다.</p>' : selectedBook.payments.map((p, i) => renderPaymentRow(p, i)).join('')}
+            </div>
+          </div>
+
+          <!-- 메모 -->
+          <div class="tab-section">
+            <div class="tab-section-title">📌 메모</div>
+            <textarea id="editNotes" class="input-field" rows="2">${selectedBook.notes || ''}</textarea>
+          </div>
+
+          <!-- 버튼 -->
+          <div class="flex justify-between pt-4 border-t sticky bottom-0 bg-white py-4">
+            <button onclick="deleteBook('${selectedBook.id}')" class="btn btn-danger">삭제</button>
+            <div class="flex gap-3">
+              <button onclick="closeModal('editBookModal')" class="btn btn-secondary">취소</button>
+              <button onclick="saveBook()" class="btn btn-primary">저장</button>
+            </div>
+          </div>
+        </div>
+      `;
+      document.getElementById('editBookModal').classList.remove('hidden');
+    }
+
+    function renderPaymentRow(p, index) {
+      const overdue = !p.paid && isPaymentOverdue(p.dueDate);
+      const statementOverdue = p.paid && p.paidDate && !p.statementReceived && isStatementOverdue(p.paidDate);
+      return `
+        <div class="payment-row ${overdue ? 'overdue' : ''} ${p.paid ? 'paid' : ''}" style="${statementOverdue ? 'opacity:1;background:#fef3c7;border:1px solid #fcd34d;' : ''}">
+          <input type="text" value="${p.label || ''}" placeholder="명목 (예: 1차 선인세)" class="input-field text-sm" style="flex:2;min-width:150px;" onchange="updatePayment(${index}, 'label', this.value)">
+          <input type="number" value="${p.amount || ''}" placeholder="금액" class="input-field text-sm" style="width:100px;" onchange="updatePayment(${index}, 'amount', this.value)">
+          <input type="date" value="${p.dueDate || ''}" class="input-field text-sm" style="width:140px;" onchange="updatePayment(${index}, 'dueDate', this.value)" title="입금 예정일">
+          <label class="flex items-center gap-2 text-sm whitespace-nowrap">
+            <input type="checkbox" ${p.paid ? 'checked' : ''} onchange="updatePaymentPaid(${index}, this.checked)"> 입금
+          </label>
+          ${p.paid ? `<input type="date" value="${p.paidDate || ''}" class="input-field text-sm" style="width:140px;" onchange="updatePayment(${index}, 'paidDate', this.value)" title="실제 입금일">` : ''}
+          ${p.paid ? `<label class="flex items-center gap-2 text-sm whitespace-nowrap">
+            <input type="checkbox" ${p.statementReceived ? 'checked' : ''} onchange="updatePayment(${index}, 'statementReceived', this.checked)"> 정산서
+          </label>` : ''}
+          <button onclick="removePayment(${index})" class="text-red-500 hover:bg-red-50 p-2 rounded text-lg">✕</button>
+          ${overdue ? '<span class="text-xs text-red-600 font-medium whitespace-nowrap">⚠️ 입금 7일 초과</span>' : ''}
+          ${statementOverdue ? '<span class="text-xs text-yellow-700 font-medium whitespace-nowrap">⚠️ 정산서 미입수</span>' : ''}
+        </div>
+      `;
+    }
+
+    function isStatementOverdue(paidDate) {
+      if (!paidDate) return false;
+      const paid = new Date(paidDate);
+      const today = new Date();
+      const diffDays = Math.floor((today - paid) / (1000 * 60 * 60 * 24));
+      return diffDays > 10;
+    }
+
+    function addPayment() {
+      if (!selectedBook.payments) selectedBook.payments = [];
+      selectedBook.payments.push({ label: '', amount: 0, dueDate: '', paid: false, paidDate: '', statementReceived: false });
+      refreshPaymentsUI();
+    }
+
+    function updatePayment(index, field, value) {
+      if (field === 'amount') value = parseFloat(value) || 0;
+      if (field === 'paid' || field === 'statementReceived') value = Boolean(value);
+      selectedBook.payments[index][field] = value;
+      refreshPaymentsUI();
+    }
+
+    function updatePaymentPaid(index, checked) {
+      selectedBook.payments[index].paid = checked;
+      if (checked && !selectedBook.payments[index].paidDate) {
+        // 입금 체크 시 오늘 날짜를 실제 입금일로 자동 설정
+        selectedBook.payments[index].paidDate = new Date().toISOString().split('T')[0];
+      }
+      refreshPaymentsUI();
+    }
+
+    function removePayment(index) {
+      selectedBook.payments.splice(index, 1);
+      refreshPaymentsUI();
+    }
+
+    function refreshPaymentsUI() {
+      const container = document.getElementById('paymentsContainer');
+      if (!container) return;
+      container.innerHTML = selectedBook.payments.length === 0 
+        ? '<p class="text-sm text-slate-400">등록된 입금 스케줄이 없습니다.</p>'
+        : selectedBook.payments.map((p, i) => renderPaymentRow(p, i)).join('');
+    }
+
+    function selectStage(stageId) {
+      selectedBook.stage = stageId;
+      document.querySelectorAll('.stage-select-btn').forEach(btn => {
+        const isSelected = parseInt(btn.dataset.stage) === stageId;
+        btn.className = `stage-select-btn px-2 py-1 rounded-lg text-xs border-2 transition-colors ${isSelected ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200 hover:border-slate-300'}`;
+      });
+    }
+
+    async function saveBook() {
+      selectedBook.title = document.getElementById('editTitle').value;
+      selectedBook.author = document.getElementById('editAuthor').value;
+      selectedBook.country = document.getElementById('editCountry').value;
+      selectedBook.publisher = document.getElementById('editPublisher').value;
+      selectedBook.contractDate = document.getElementById('editContractDate').value;
+      selectedBook.expiryDate = document.getElementById('editExpiryDate').value;
+      selectedBook.advance = parseFloat(document.getElementById('editAdvance').value) || 0;
+      selectedBook.currency = document.getElementById('editCurrency').value;
+      selectedBook.notes = document.getElementById('editNotes').value;
+
+      selectedBook.contract = {
+        agency: document.getElementById('editAgency').value,
+        years: parseInt(document.getElementById('editContractYears').value) || 0,
+        advanceEbook: parseFloat(document.getElementById('editAdvanceEbook').value) || 0,
+        advanceAudio: parseFloat(document.getElementById('editAdvanceAudio').value) || 0,
+        advanceOther: parseFloat(document.getElementById('editAdvanceOther').value) || 0,
+        dataFee: parseFloat(document.getElementById('editDataFee').value) || 0,
+        dataCurrency: document.getElementById('editDataCurrency').value,
+        royaltyRate: parseFloat(document.getElementById('editRoyaltyRate').value) || 0,
+        ebookRate: document.getElementById('editEbookRate').value,
+        audioRate: document.getElementById('editAudioRate').value,
+        otherRate: document.getElementById('editOtherRate').value,
+        firstPrint: parseInt(document.getElementById('editFirstPrint').value) || 0,
+        localPrice: document.getElementById('editLocalPrice').value,
+        publishDeadline: parseInt(document.getElementById('editPublishDeadline').value) || 0,
+        withholding: parseFloat(document.getElementById('editWithholding').value) || 0,
+        agencyFee: parseFloat(document.getElementById('editAgencyFee').value) || 0,
+        freeCopies: parseInt(document.getElementById('editFreeCopies').value) || 0,
+        printRoyaltyMonth: parseInt(document.getElementById('editPrintRoyaltyMonth').value) || 0,
+        ebookRoyaltyMonth: parseInt(document.getElementById('editEbookRoyaltyMonth').value) || 0,
+      };
+      
+      // 새 에이전시 저장
+      addAgency(selectedBook.contract.agency);
+
+      books = books.map(b => b.id.toString() === selectedBook.id.toString() ? selectedBook : b);
+      localStorage.setItem('rights-books', JSON.stringify(books));
+      renderBooks();
+      updateAlertsBadge();
+      closeModal('editBookModal');
+      showToast('저장되었습니다');
+      await apiCall('update', 'books', selectedBook);
+    }
+
+    async function deleteBook(id) {
+      if (confirm('정말 삭제하시겠습니까?')) {
+        books = books.filter(b => b.id.toString() !== id.toString());
+        localStorage.setItem('rights-books', JSON.stringify(books));
+        renderBooks();
+        updateAlertsBadge();
+        closeModal('editBookModal');
+        showToast('삭제되었습니다');
+        await apiCall('delete', 'books', id);
+      }
+    }
+
+    function showAddBookModal() {
+      document.getElementById('addBookContent').innerHTML = `
+        <div class="space-y-4">
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">도서명 *</label>
+              <input type="text" id="newBookTitle" list="titleList" class="input-field" placeholder="도서명">
+              <datalist id="titleList">
+                ${getTitles().map(t => `<option value="${t}">`).join('')}
+              </datalist>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">저자 *</label>
+              <input type="text" id="newBookAuthor" list="authorList" class="input-field" placeholder="저자">
+              <datalist id="authorList">
+                ${getAuthors().map(a => `<option value="${a}">`).join('')}
+              </datalist>
+            </div>
+          </div>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">국가</label>
+              <select id="newBookCountry" class="input-field">
+                ${COUNTRIES.map(c => `<option value="${c}">${COUNTRY_FLAGS[c]} ${c}</option>`).join('')}
+              </select>
+            </div>
+            <div>
+              <label class="block text-sm font-medium text-slate-600 mb-1">출판사</label>
+              <input type="text" id="newBookPublisher" list="publisherList" class="input-field" placeholder="해외 출판사">
+              <datalist id="publisherList">
+                ${getPublishers().map(p => `<option value="${p}">`).join('')}
+              </datalist>
+            </div>
+          </div>
+          <div>
+            <label class="block text-sm font-medium text-slate-600 mb-2">시작 단계</label>
+            <div class="flex flex-wrap gap-2" id="newBookStageButtons"></div>
+          </div>
+          <div class="flex justify-end gap-3 pt-4">
+            <button onclick="closeModal('addBookModal')" class="btn btn-secondary">취소</button>
+            <button onclick="addBook()" class="btn btn-primary">등록</button>
+          </div>
+        </div>
+      `;
+
+      window.newBookStage = 1;
+      document.getElementById('newBookStageButtons').innerHTML = STAGES.slice(0, 6).map(s => `
+        <button type="button" onclick="selectNewBookStage(${s.id})" data-stage="${s.id}" class="new-stage-btn px-3 py-2 rounded-lg text-sm border-2 ${s.id === 1 ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200'}">${s.icon} ${s.name}</button>
+      `).join('');
+
+      document.getElementById('addBookModal').classList.remove('hidden');
+    }
+
+    function selectNewBookStage(stageId) {
+      window.newBookStage = stageId;
+      document.querySelectorAll('.new-stage-btn').forEach(btn => {
+        const isSelected = parseInt(btn.dataset.stage) === stageId;
+        btn.className = `new-stage-btn px-3 py-2 rounded-lg text-sm border-2 ${isSelected ? 'border-blue-500 bg-blue-50 text-blue-700' : 'border-slate-200'}`;
+      });
+    }
+
+    async function addBook() {
+      const title = document.getElementById('newBookTitle').value.trim();
+      const author = document.getElementById('newBookAuthor').value.trim();
+      if (!title || !author) { showToast('도서명과 저자를 입력해주세요', 'error'); return; }
+
+      const newBook = {
+        id: Date.now().toString(),
+        title,
+        author,
+        country: document.getElementById('newBookCountry').value,
+        publisher: document.getElementById('newBookPublisher').value,
+        stage: window.newBookStage || 1,
+        contractDate: '',
+        expiryDate: '',
+        advance: 0,
+        currency: 'USD',
+        notes: '',
+        contract: {},
+        payments: []
+      };
+
+      books.push(newBook);
+      localStorage.setItem('rights-books', JSON.stringify(books));
+      renderBooks();
+      updateAlertsBadge();
+      closeModal('addBookModal');
+      showToast('등록되었습니다');
+      await apiCall('add', 'books', newBook);
+    }
+
+    // ==================== 알림 ====================
+    function getAlerts() {
+      const today = new Date();
+      const alerts = [];
+
+      books.forEach(book => {
+        const c = book.contract || {};
+        
+        // 계약 만료 알림
+        if (book.expiryDate) {
+          const expiry = new Date(book.expiryDate);
+          const daysUntil = Math.ceil((expiry - today) / (1000 * 60 * 60 * 24));
+          if (daysUntil <= 90 && daysUntil > 0) {
+            alerts.push({ type: 'expiry', book, daysUntil, message: `계약 만료 D-${daysUntil}` });
+          }
+        }
+
+        // 출간 기한 초과 알림 (계약일 + 출간기한 + 1주일)
+        if (book.contractDate && c.publishDeadline && book.stage < 11) {
+          const contractDate = new Date(book.contractDate);
+          const deadline = new Date(contractDate);
+          deadline.setMonth(deadline.getMonth() + c.publishDeadline);
+          deadline.setDate(deadline.getDate() + 7); // +1주일
+          
+          const daysOverdue = Math.floor((today - deadline) / (1000 * 60 * 60 * 24));
+          if (daysOverdue > 0) {
+            alerts.push({ type: 'publish', book, daysOverdue, deadline: c.publishDeadline, message: `출간 기한 ${daysOverdue}일 초과` });
+          }
+        }
+
+        // 종이책 인세보고 연체 알림 (매년 해당 월 말 + 7일)
+        if (c.printRoyaltyMonth) {
+          const year = today.getFullYear();
+          const lastDayOfMonth = new Date(year, c.printRoyaltyMonth, 0); // 해당 월의 마지막 날
+          const deadline = new Date(lastDayOfMonth);
+          deadline.setDate(deadline.getDate() + 7); // +7일
+          
+          if (today > deadline) {
+            const daysOverdue = Math.floor((today - deadline) / (1000 * 60 * 60 * 24));
+            alerts.push({ type: 'royaltyPrint', book, daysOverdue, reportMonth: c.printRoyaltyMonth, message: `종이책 인세보고 ${daysOverdue}일 연체` });
+          }
+        }
+
+        // 전자책 인세보고 연체 알림 (매년 해당 월 말 + 7일)
+        if (c.ebookRoyaltyMonth) {
+          const year = today.getFullYear();
+          const lastDayOfMonth = new Date(year, c.ebookRoyaltyMonth, 0); // 해당 월의 마지막 날
+          const deadline = new Date(lastDayOfMonth);
+          deadline.setDate(deadline.getDate() + 7); // +7일
+          
+          if (today > deadline) {
+            const daysOverdue = Math.floor((today - deadline) / (1000 * 60 * 60 * 24));
+            alerts.push({ type: 'royaltyEbook', book, daysOverdue, reportMonth: c.ebookRoyaltyMonth, message: `전자책 인세보고 ${daysOverdue}일 연체` });
+          }
+        }
+
+        // 입금 연체 알림 (7일 초과)
+        (book.payments || []).forEach(p => {
+          if (!p.paid && p.dueDate) {
+            const due = new Date(p.dueDate);
+            const daysOverdue = Math.floor((today - due) / (1000 * 60 * 60 * 24));
+            if (daysOverdue > 7) {
+              alerts.push({ type: 'payment', book, payment: p, daysOverdue, message: `입금 ${daysOverdue}일 연체` });
+            }
+          }
+          
+          // 정산서 미입수 알림 (입금 후 10일 초과)
+          if (p.paid && p.paidDate && !p.statementReceived) {
+            const paidDate = new Date(p.paidDate);
+            const daysOverdue = Math.floor((today - paidDate) / (1000 * 60 * 60 * 24));
+            if (daysOverdue > 10) {
+              alerts.push({ type: 'statement', book, payment: p, daysOverdue, message: `정산서 미입수 ${daysOverdue}일` });
+            }
+          }
+        });
+      });
+
+      return alerts.sort((a, b) => {
+        // 우선순위: 출간기한 > 인세보고 > 입금연체 > 정산서 > 계약만료
+        const priority = { publish: 0, royaltyPrint: 1, royaltyEbook: 1, payment: 2, statement: 3, expiry: 4 };
+        if (priority[a.type] !== priority[b.type]) return priority[a.type] - priority[b.type];
+        return (b.daysOverdue || 0) - (a.daysOverdue || 0);
+      });
+    }
+
+    function updateAlertsBadge() {
+      const alerts = getAlerts();
+      const badge = document.getElementById('alertsBadge');
+      if (alerts.length > 0) {
+        badge.textContent = alerts.length;
+        badge.classList.remove('hidden');
+        badge.classList.add('flex');
+      } else {
+        badge.classList.add('hidden');
+        badge.classList.remove('flex');
+      }
+    }
+
+    function showAlertsModal() {
+      const alerts = getAlerts();
+      document.getElementById('alertsContent').innerHTML = alerts.length === 0 ? `
+        <div class="text-center py-8 text-slate-400">
+          <div class="text-4xl mb-4">✨</div>
+          <div>알림이 없습니다</div>
+        </div>
+      ` : `
+        <div class="space-y-3">
+          ${alerts.map(alert => {
+            const isRoyalty = alert.type === 'royaltyPrint' || alert.type === 'royaltyEbook';
+            const bgColor = alert.type === 'publish' ? 'bg-orange-50 border border-orange-200' : 
+                           isRoyalty ? 'bg-purple-50 border border-purple-200' :
+                           alert.type === 'payment' ? 'bg-red-50 border border-red-200' : 
+                           alert.type === 'statement' ? 'bg-amber-50 border border-amber-200' :
+                           alert.daysUntil <= 30 ? 'bg-red-50 border border-red-200' : 
+                           alert.daysUntil <= 60 ? 'bg-yellow-50 border border-yellow-200' : 'bg-green-50 border border-green-200';
+            const badgeColor = alert.type === 'publish' ? 'bg-orange-500' :
+                              isRoyalty ? 'bg-purple-500' :
+                              alert.type === 'payment' ? 'bg-red-500' : 
+                              alert.type === 'statement' ? 'bg-amber-500' :
+                              alert.daysUntil <= 30 ? 'bg-red-500' : 
+                              alert.daysUntil <= 60 ? 'bg-yellow-500' : 'bg-green-500';
+            const royaltyLabel = alert.type === 'royaltyPrint' ? '📖 종이책' : alert.type === 'royaltyEbook' ? '📱 전자책' : '';
+            
+            return `
+            <div onclick="closeModal('alertsModal'); showEditBookModal('${alert.book.id}')" class="p-4 rounded-xl cursor-pointer transition-all hover:scale-102 ${bgColor}">
+              <div class="flex justify-between items-start">
+                <div>
+                  <div class="font-semibold">${alert.book.title}</div>
+                  <div class="text-sm text-slate-500">${COUNTRY_FLAGS[alert.book.country]} ${alert.book.country} • ${alert.book.publisher || ''}</div>
+                  ${alert.type === 'payment' ? `<div class="text-sm text-red-600 mt-1">💰 ${alert.payment.label || '입금'}: ${alert.payment.amount?.toLocaleString()} ${alert.book.currency || ''}</div>` : ''}
+                  ${alert.type === 'statement' ? `<div class="text-sm text-amber-600 mt-1">📄 ${alert.payment.label || '입금'}: 정산서 미입수</div>` : ''}
+                  ${alert.type === 'publish' ? `<div class="text-sm text-orange-600 mt-1">📅 출간 기한: 계약일로부터 ${alert.deadline}개월</div>` : ''}
+                  ${isRoyalty ? `<div class="text-sm text-purple-600 mt-1">${royaltyLabel} 인세보고: 매년 ${alert.reportMonth}월</div>` : ''}
+                </div>
+                <span class="px-3 py-1 rounded-full text-sm font-semibold text-white ${badgeColor}">
+                  ${alert.type === 'payment' || alert.type === 'publish' || alert.type === 'statement' || isRoyalty ? `+${alert.daysOverdue}일` : `D-${alert.daysUntil}`}
+                </span>
+              </div>
+              <div class="text-xs text-slate-500 mt-2">
+                ${alert.type === 'payment' ? `입금 예정일: ${alert.payment.dueDate}` : 
+                  alert.type === 'statement' ? `입금일: ${alert.payment.paidDate}` :
+                  alert.type === 'publish' ? `계약 체결일: ${alert.book.contractDate}` :
+                  isRoyalty ? `${alert.reportMonth}월 말 + 7일 초과` :
+                  `만료일: ${alert.book.expiryDate}`}
+              </div>
+            </div>
+          `}).join('')}
+        </div>
+      `;
+      document.getElementById('alertsModal').classList.remove('hidden');
+    }
+
+    // ==================== 엑셀 ====================
+    function exportToExcel() {
+      const data = books.map(book => {
+        const c = book.contract || {};
+        return {
+          '도서명': book.title,
+          '저자': book.author,
+          '국가': book.country,
+          '출판사': book.publisher || '',
+          '중개 에이전시': c.agency || '',
+          '진행 단계': STAGES.find(s => s.id === book.stage)?.name || '',
+          '종이책 선인세': book.advance || 0,
+          '전자책 선인세': c.advanceEbook || 0,
+          '오디오북 선인세': c.advanceAudio || 0,
+          '기타 선인세': c.advanceOther || 0,
+          '선인세 통화': book.currency || '',
+          '데이터비용': c.dataFee || '',
+          '데이터비용 통화': c.dataCurrency || '',
+          '종이책 인세(%)': c.royaltyRate || '',
+          '전자책 인세(%)': c.ebookRate || '',
+          '오디오북 인세(%)': c.audioRate || '',
+          '기타 인세(%)': c.otherRate || '',
+          '초판 부수': c.firstPrint || '',
+          '현지 판매가': c.localPrice || '',
+          '출간 기한(개월)': c.publishDeadline || '',
+          '종이책 인세보고(매년)': c.printRoyaltyMonth ? `${c.printRoyaltyMonth}월` : '',
+          '전자책 인세보고(매년)': c.ebookRoyaltyMonth ? `${c.ebookRoyaltyMonth}월` : '',
+          '계약 기간(년)': c.years || '',
+          '원천징수(%)': c.withholding || '',
+          '에이전시 수수료(%)': c.agencyFee || '',
+          '증정 부수': c.freeCopies || '',
+          '계약일': book.contractDate || '',
+          '만료일': book.expiryDate || '',
+          '메모': book.notes || ''
+        };
+      });
+
+      const ws = XLSX.utils.json_to_sheet(data);
+      const wb = XLSX.utils.book_new();
+      XLSX.utils.book_append_sheet(wb, ws, '외서 관리');
+      XLSX.writeFile(wb, `외서관리_${new Date().toISOString().split('T')[0]}.xlsx`);
+      showToast('엑셀 파일이 다운로드됩니다');
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.add('hidden');
+    }
+  </script>
+</body>
+</html>
