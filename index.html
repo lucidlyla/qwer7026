@@ -627,7 +627,7 @@
     }
 
     async function toggleTodo(id) {
-      const todo = todos.find(t => t.id === id);
+      const todo = todos.find(t => String(t.id) === String(id));
       if (todo) {
         todo.completed = !todo.completed;
         todo.completedAt = todo.completed ? new Date().toISOString() : '';
@@ -640,7 +640,7 @@
 
     async function deleteTodo(id) {
       if (!confirm('삭제하시겠습니까?')) return;
-      todos = todos.filter(t => t.id !== id);
+      todos = todos.filter(t => String(t.id) !== String(id));
       localStorage.setItem('todos', JSON.stringify(todos));
       renderTodos();
       renderCalendar();
@@ -660,7 +660,7 @@
     }
 
     async function saveTodoEdit(id) {
-      const todo = todos.find(t => t.id === id);
+      const todo = todos.find(t => String(t.id) === String(id));
       if (!todo) return;
       
       const newText = document.getElementById('editTodoText_' + id).value.trim();
@@ -683,7 +683,7 @@
       let filtered = todos.filter(todo => currentFilter === 'all' || todo.category === currentFilter)
         .filter(todo => !todo.completed);
       
-      const idx = filtered.findIndex(t => t.id === id);
+      const idx = filtered.findIndex(t => String(t.id) === String(id));
       if (idx < 0) return;
       if (direction === 'up' && idx === 0) return;
       if (direction === 'down' && idx === filtered.length - 1) return;
@@ -692,8 +692,8 @@
       const swapTodo = filtered[swapIdx];
       
       // todos 배열에서의 실제 인덱스 찾기
-      const realIdx = todos.findIndex(t => t.id === id);
-      const realSwapIdx = todos.findIndex(t => t.id === swapTodo.id);
+      const realIdx = todos.findIndex(t => String(t.id) === String(id));
+      const realSwapIdx = todos.findIndex(t => String(t.id) === String(swapTodo.id));
       
       // 위치 교환
       [todos[realIdx], todos[realSwapIdx]] = [todos[realSwapIdx], todos[realIdx]];
@@ -763,7 +763,7 @@
       const cat = TODO_CATEGORIES[todo.category] || TODO_CATEGORIES.other;
       const pri = PRIORITIES[todo.priority] || PRIORITIES.medium;
       const overdue = isOverdue(todo.dueDate, todo.completed);
-      const isEditing = editingTodoId === todo.id;
+      const isEditing = String(editingTodoId) === String(todo.id);
       
       if (isEditing) {
         return `
